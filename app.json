@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "AI衣橱",
+    "slug": "ai-wardrobe",
+    "version": "4.0.0",
+    "sdkVersion": "54.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "ai-wardrobe",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#6366f1"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.aiwardrobe.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6366f1"
+      },
+      "package": "com.aiwardrobe.app"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://10.29.137.80:5000"
+    }
+  }
+}
