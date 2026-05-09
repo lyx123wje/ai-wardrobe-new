@@ -1,21 +1,26 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, Pressable,
-  FlatList, ScrollView, ActivityIndicator, Alert,
+  View, Text, TextInput, StyleSheet, Pressable, Animated,
+  FlatList, ScrollView, ActivityIndicator, Alert, Modal, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fetchWardrobe, updateWardrobeItem, deleteWardrobeItem } from '../src/api/wardrobe';
+import { fetchMiscItems, updateMiscItem, deleteMiscItem } from '../src/api/misc';
 import { CATEGORIES } from '../src/utils/constants';
 import ClothingCard from '../src/components/ClothingCard';
+import MiscItemCard from '../src/components/MiscItemCard';
 import AddItemModal from '../src/components/AddItemModal';
 import DetailModal from '../src/components/DetailModal';
+import MiscAddModal from '../src/components/MiscAddModal';
+import ButlerChat from '../src/components/ButlerChat';
 
 export default function WardrobeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [items, setItems] = useState([]);
+  const [miscItems, setMiscItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -23,11 +28,19 @@ export default function WardrobeScreen() {
   const [activeCategory, setActiveCategory] = useState('全部');
 
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedMiscItem, setSelectedMiscItem] = useState(null);
   const [addModalVisible, setAddModalVisible] = useState(false);
+  const [miscAddModalVisible, setMiscAddModalVisible] = useState(false);
+  const [butlerVisible, setButlerVisible] = useState(false);
 
-  // 多选模式
+  // 多选模式（仅衣物）
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // FAB 展开/收起
+  const [fabExpanded, setFabExpanded] = useState(false);
+  const fabAnim = useState(new Animated.Value(0))[0];
+  const isMisc = activeCategory === '杂物';
 
   function ensureArray(data) {
     if (Array.isArray(data)) return data;
@@ -36,6 +49,7 @@ export default function WardrobeScreen() {
     return [];
   }
 
+  // ── 加载衣物 ──
   const loadWardrobe = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
@@ -49,9 +63,40 @@ export default function WardrobeScreen() {
     }
   }, []);
 
-  useEffect(() => { loadWardrobe(); }, [loadWardrobe]);
+  // ── 加载杂物 ──
+  const loadMisc = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) setRefreshing(true);
+      const res = await fetchMiscItems();
+      setMiscItems(ensureArray(res.data));
+    } catch (err) {
+      Alert.alert(isRefresh ? '刷新失败' : '加载失败', '请检查网络后重试');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
+  useEffect(() => {
+    loadWardrobe();
+    loadMisc();
+  }, [loadWardrobe, loadMisc]);
+
+  // ── 搜索过滤 ──
   const filteredItems = useMemo(() => {
+    if (isMisc) {
+      let result = miscItems;
+      if (searchText.trim()) {
+        const kw = searchText.trim().toLowerCase();
+        result = result.filter((i) =>
+          (i.name || '').toLowerCase().includes(kw) ||
+          (i.location || '').toLowerCase().includes(kw) ||
+          (i.notes || '').toLowerCase().includes(kw)
+        );
+      }
+      return result;
+    }
+
     let result = items;
     if (activeCategory !== '全部') {
       result = result.filter((i) => i.category === activeCategory);
@@ -66,9 +111,9 @@ export default function WardrobeScreen() {
       );
     }
     return result;
-  }, [items, activeCategory, searchText]);
+  }, [items, miscItems, activeCategory, searchText, isMisc]);
 
-  // ── 单选 ──
+  // ── 单选（衣物） ──
   function handleItemPress(item) {
     if (multiSelectMode) {
       toggleSelect(item.id);
@@ -104,7 +149,39 @@ export default function WardrobeScreen() {
     setAddModalVisible(false);
   }
 
-  // ── 多选 ──
+  // ── 杂物操作 ──
+  function handleMiscPress(item) {
+    setSelectedMiscItem(item);
+  }
+
+  function handleMiscUpdate(id, updates, isRollback = false) {
+    setMiscItems((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      return arr.map((it) => (it.id === id ? { ...it, ...updates } : it));
+    });
+    if (!isRollback && selectedMiscItem?.id === id) {
+      setSelectedMiscItem((prev) => (prev ? { ...prev, ...updates } : prev));
+    }
+  }
+
+  function handleMiscDelete(id) {
+    setMiscItems((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      return arr.filter((it) => it.id !== id);
+    });
+    setSelectedMiscItem(null);
+  }
+
+  function handleMiscSaved(newItem) {
+    if (!newItem) { setMiscAddModalVisible(false); return; }
+    setMiscItems((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      return [newItem, ...arr];
+    });
+    setMiscAddModalVisible(false);
+  }
+
+  // ── 多选（衣物） ──
   function toggleSelect(id) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -136,7 +213,6 @@ export default function WardrobeScreen() {
   async function batchMarkDirty() {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
-    const rollbackItems = items.filter((i) => ids.includes(i.id));
     setItems((prev) => {
       const arr = Array.isArray(prev) ? prev : [];
       return arr.map((it) => ids.includes(it.id) ? { ...it, is_dirty: 1 } : it);
@@ -192,14 +268,58 @@ export default function WardrobeScreen() {
     );
   }
 
+  // ── FAB 动画 ──
+  function toggleFab() {
+    const toValue = fabExpanded ? 0 : 1;
+    setFabExpanded(!fabExpanded);
+    Animated.spring(fabAnim, {
+      toValue,
+      useNativeDriver: true,
+      tension: 200,
+      friction: 15,
+    }).start();
+  }
+
+  function collapseFab() {
+    if (fabExpanded) {
+      setFabExpanded(false);
+      Animated.spring(fabAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 200,
+        friction: 15,
+      }).start();
+    }
+  }
+
+  // ── 管家 actions 回调 ──
+  function handleButlerActions(actions) {
+    // 刷新数据以反映 AI 做过的修改
+    loadWardrobe();
+    loadMisc();
+  }
+
   // ── 空状态 ──
   function renderEmpty() {
     if (loading) return null;
-    const isFiltered = activeCategory !== '全部' || searchText.trim().length > 0;
+    const isFiltered = searchText.trim().length > 0 || (activeCategory !== '全部' && activeCategory !== '杂物');
+    const isEmptyMisc = isMisc && miscItems.length === 0 && !isFiltered;
+    const isEmptyWardrobe = !isMisc && items.length === 0 && !isFiltered;
+
+    if (isEmptyMisc) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>📦</Text>
+          <Text style={styles.emptyTitle}>杂物栏还是空的</Text>
+          <Text style={styles.emptySub}>添加第一件杂物吧</Text>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyIcon}>{isFiltered ? '🔍' : '👔'}</Text>
-        <Text style={styles.emptyTitle}>{isFiltered ? '无匹配衣物' : '衣柜还是空的'}</Text>
+        <Text style={styles.emptyTitle}>{isFiltered ? '无匹配结果' : '衣柜还是空的'}</Text>
         <Text style={styles.emptySub}>
           {isFiltered ? '尝试更换筛选条件或搜索关键词' : '添加第一件衣物吧'}
         </Text>
@@ -209,14 +329,128 @@ export default function WardrobeScreen() {
 
   function renderCategoryChip(category) {
     const isActive = activeCategory === category;
+    const isMiscCat = category === '杂物';
     return (
       <Pressable
         key={category}
-        style={[styles.chip, isActive && styles.chipActive]}
-        onPress={() => setActiveCategory(category)}
+        style={[
+          styles.chip,
+          isActive && styles.chipActive,
+          isMiscCat && isActive && { backgroundColor: '#8B7355' },
+        ]}
+        onPress={() => {
+          setActiveCategory(category);
+          exitMultiSelect();
+          collapseFab();
+        }}
       >
         <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{category}</Text>
       </Pressable>
+    );
+  }
+
+  // ── 杂物编辑 Modal（simple inline modal） ──
+  function renderMiscDetailModal() {
+    if (!selectedMiscItem) return null;
+    return (
+      <Modal visible={true} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedMiscItem(null)}>
+        <View style={styles.modal}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setSelectedMiscItem(null)} style={styles.headerBtn}>
+              <Text style={styles.headerBtnText}>关闭</Text>
+            </Pressable>
+            <Text style={styles.headerTitle}>杂物详情</Text>
+            <View style={styles.headerBtn} />
+          </View>
+          <ScrollView contentContainerStyle={styles.miscDetailContent}>
+            {selectedMiscItem.image ? (
+              <Image
+                source={{
+                  uri: selectedMiscItem.image.startsWith('data:')
+                    ? selectedMiscItem.image
+                    : `data:image/jpeg;base64,${selectedMiscItem.image}`,
+                }}
+                style={styles.miscDetailImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.miscDetailImageEmpty}>
+                <Text style={{ color: '#94a3b8', fontSize: 14 }}>暂无图片</Text>
+              </View>
+            )}
+
+            <View style={styles.miscDetailRow}>
+              <Text style={styles.miscDetailLabel}>名称</Text>
+              <TextInput
+                style={styles.miscDetailInput}
+                value={selectedMiscItem.name}
+                onChangeText={(v) => setSelectedMiscItem((prev) => prev ? { ...prev, name: v } : prev)}
+              />
+            </View>
+            <View style={styles.miscDetailRow}>
+              <Text style={styles.miscDetailLabel}>位置</Text>
+              <TextInput
+                style={styles.miscDetailInput}
+                value={selectedMiscItem.location || ''}
+                onChangeText={(v) => setSelectedMiscItem((prev) => prev ? { ...prev, location: v } : prev)}
+                placeholder="存放位置..."
+                placeholderTextColor="#94a3b8"
+              />
+            </View>
+            <View style={styles.miscDetailRow}>
+              <Text style={styles.miscDetailLabel}>备注</Text>
+              <TextInput
+                style={[styles.miscDetailInput, { minHeight: 60, textAlignVertical: 'top' }]}
+                value={selectedMiscItem.notes || ''}
+                onChangeText={(v) => setSelectedMiscItem((prev) => prev ? { ...prev, notes: v } : prev)}
+                placeholder="备注..."
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
+            </View>
+
+            <View style={styles.miscDetailBtns}>
+              <Pressable
+                style={styles.miscSaveBtn}
+                onPress={async () => {
+                  try {
+                    await updateMiscItem(selectedMiscItem.id, {
+                      name: selectedMiscItem.name,
+                      location: selectedMiscItem.location || '',
+                      notes: selectedMiscItem.notes || '',
+                    });
+                    setMiscItems((prev) =>
+                      prev.map((it) => (it.id === selectedMiscItem.id ? { ...selectedMiscItem } : it))
+                    );
+                    setSelectedMiscItem(null);
+                  } catch { Alert.alert('保存失败'); }
+                }}
+              >
+                <Text style={styles.miscSaveBtnText}>保存</Text>
+              </Pressable>
+              <Pressable
+                style={styles.miscDeleteBtn}
+                onPress={() => {
+                  Alert.alert('确认删除', `确定删除「${selectedMiscItem.name}」吗？`, [
+                    { text: '取消', style: 'cancel' },
+                    {
+                      text: '删除', style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await deleteMiscItem(selectedMiscItem.id);
+                          handleMiscDelete(selectedMiscItem.id);
+                        } catch { Alert.alert('删除失败'); }
+                      },
+                    },
+                  ]);
+                }}
+              >
+                <Text style={styles.miscDeleteBtnText}>删除</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     );
   }
 
@@ -241,10 +475,19 @@ export default function WardrobeScreen() {
             <Pressable style={styles.backBtn} onPress={() => router.back()}>
               <Text style={styles.backBtnText}>← 返回</Text>
             </Pressable>
-            <Text style={styles.headerTitle}>衣柜</Text>
-            <Pressable style={styles.multiSelectBtn} onPress={enterMultiSelect}>
-              <Text style={styles.multiSelectBtnText}>多选</Text>
-            </Pressable>
+            <Text style={styles.headerTitle}>{isMisc ? '杂物' : '衣柜'}</Text>
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+              {/* 管家按钮 */}
+              <Pressable style={styles.butlerBtn} onPress={() => setButlerVisible(true)}>
+                <Text style={styles.butlerBtnText}>🤖</Text>
+              </Pressable>
+              {/* 多选按钮（杂物模式隐藏） */}
+              {!isMisc && (
+                <Pressable style={styles.multiSelectBtn} onPress={enterMultiSelect}>
+                  <Text style={styles.multiSelectBtnText}>多选</Text>
+                </Pressable>
+              )}
+            </View>
           </>
         )}
       </View>
@@ -256,7 +499,7 @@ export default function WardrobeScreen() {
             style={styles.searchInput}
             value={searchText}
             onChangeText={setSearchText}
-            placeholder="搜索衣物..."
+            placeholder={isMisc ? '搜索杂物（名称/位置/备注）...' : '搜索衣物...'}
             placeholderTextColor="#94a3b8"
             returnKeyType="search"
           />
@@ -280,7 +523,7 @@ export default function WardrobeScreen() {
       {/* Content */}
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366f1" />
+          <ActivityIndicator size="large" color={isMisc ? '#8B7355' : '#6366f1'} />
           <Text style={styles.loadingText}>加载中...</Text>
         </View>
       ) : (
@@ -288,14 +531,18 @@ export default function WardrobeScreen() {
           data={filteredItems}
           keyExtractor={(item) => String(item.id)}
           numColumns={2}
-          renderItem={({ item }) => (
-            <ClothingCard
-              item={item}
-              onPress={handleItemPress}
-              multiSelect={multiSelectMode}
-              isSelected={selectedIds.has(item.id)}
-            />
-          )}
+          renderItem={({ item }) =>
+            isMisc ? (
+              <MiscItemCard item={item} onPress={handleMiscPress} />
+            ) : (
+              <ClothingCard
+                item={item}
+                onPress={handleItemPress}
+                multiSelect={multiSelectMode}
+                isSelected={selectedIds.has(item.id)}
+              />
+            )
+          }
           ListEmptyComponent={renderEmpty}
           contentContainerStyle={[
             styles.listContent,
@@ -303,7 +550,10 @@ export default function WardrobeScreen() {
             multiSelectMode && { paddingBottom: 80 },
           ]}
           columnWrapperStyle={filteredItems.length > 0 ? styles.row : undefined}
-          onRefresh={() => loadWardrobe(true)}
+          onRefresh={() => {
+            if (isMisc) loadMisc(true);
+            else loadWardrobe(true);
+          }}
           refreshing={refreshing}
           showsVerticalScrollIndicator={false}
         />
@@ -324,16 +574,87 @@ export default function WardrobeScreen() {
         </View>
       )}
 
-      {/* FAB */}
+      {/* Dual FAB */}
       {!multiSelectMode && (
-        <Pressable style={[styles.fab, { bottom: insets.bottom + 20 }]} onPress={() => setAddModalVisible(true)}>
-          <Text style={styles.fabText}>＋</Text>
-        </Pressable>
+        <View style={[styles.fabGroup, { bottom: insets.bottom + 20 }]}>
+          {/* 衣物添加按钮（展开时显示） */}
+          <Animated.View
+            style={{
+              opacity: fabAnim,
+              transform: [
+                {
+                  translateY: fabAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0],
+                  }),
+                },
+                { scale: fabAnim },
+              ],
+              pointerEvents: fabExpanded ? 'auto' : 'none',
+            }}
+          >
+            <Pressable
+              style={[styles.fab, styles.fabMain]}
+              onPress={() => {
+                setAddModalVisible(true);
+                collapseFab();
+              }}
+            >
+              <Text style={styles.fabIcon}>👔</Text>
+            </Pressable>
+          </Animated.View>
+
+          {/* 杂物添加按钮（展开时显示） */}
+          <Animated.View
+            style={{
+              opacity: fabAnim,
+              transform: [
+                {
+                  translateY: fabAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0],
+                  }),
+                },
+                { scale: fabAnim },
+              ],
+              pointerEvents: fabExpanded ? 'auto' : 'none',
+            }}
+          >
+            <Pressable
+              style={[styles.fab, styles.fabMisc]}
+              onPress={() => {
+                setMiscAddModalVisible(true);
+                collapseFab();
+              }}
+            >
+              <Text style={styles.fabIconMisc}>📦</Text>
+            </Pressable>
+          </Animated.View>
+
+          {/* 主切换按钮：＋展开 → ✕收起 */}
+          <Pressable
+            style={[styles.fab, styles.fabToggle]}
+            onPress={() => {
+              if (fabExpanded) {
+                collapseFab();
+              } else if (isMisc) {
+                setMiscAddModalVisible(true);
+              } else {
+                toggleFab();
+              }
+            }}
+          >
+            <Text style={styles.fabText}>{fabExpanded ? '✕' : '＋'}</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Modals */}
       <AddItemModal visible={addModalVisible} onClose={() => setAddModalVisible(false)} onSaved={handleAddSaved} />
       <DetailModal visible={selectedItem !== null} item={selectedItem} onClose={handleCloseDetail} onUpdate={handleUpdateItem} onDelete={handleDeleteItem} />
+      <MiscAddModal visible={miscAddModalVisible} onClose={() => setMiscAddModalVisible(false)} onSaved={handleMiscSaved} />
+      <ButlerChat visible={butlerVisible} onClose={() => setButlerVisible(false)} onActionExecuted={handleButlerActions} />
+      {renderMiscDetailModal()}
     </View>
   );
 }
@@ -348,6 +669,11 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingRight: 12 },
   backBtnText: { fontSize: 16, color: '#6366f1' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#1e293b' },
+  butlerBtn: {
+    paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+  },
+  butlerBtnText: { fontSize: 18 },
   multiSelectBtn: { paddingVertical: 4 },
   multiSelectBtnText: { fontSize: 16, color: '#6366f1', fontWeight: '500' },
   multiDoneBtn: {
@@ -393,12 +719,65 @@ const styles = StyleSheet.create({
   batchBtnWarn: { backgroundColor: '#fef3c7' },
   batchBtnDanger: { backgroundColor: '#fef2f2' },
   batchBtnText: { fontSize: 15, fontWeight: '600', color: '#475569' },
-  // FAB
+  // Dual FAB
+  fabGroup: {
+    position: 'absolute', right: 20, alignItems: 'center',
+  },
   fab: {
-    position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#6366f1', alignItems: 'center', justifyContent: 'center',
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 12,
+  },
+  fabMain: {
+    backgroundColor: '#6366f1',
     shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
   },
+  fabMisc: {
+    backgroundColor: '#8B7355',
+    shadowColor: '#8B7355', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+  },
+  fabToggle: {
+    backgroundColor: '#6366f1',
+    shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+  },
+  fabIcon: { fontSize: 24 },
+  fabIconMisc: { fontSize: 22 },
   fabText: { fontSize: 28, color: '#fff', lineHeight: 30 },
+  // 杂物详情 Modal
+  modal: { flex: 1, backgroundColor: '#f8f9fc' },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
+  },
+  headerBtn: { minWidth: 50, paddingVertical: 4 },
+  headerBtnText: { fontSize: 16, color: '#6366f1' },
+  miscDetailContent: { padding: 20, paddingBottom: 40 },
+  miscDetailImage: {
+    width: '100%', height: 200, borderRadius: 12, backgroundColor: '#f1f5f9',
+    marginBottom: 20,
+  },
+  miscDetailImageEmpty: {
+    width: '100%', height: 200, borderRadius: 12, backgroundColor: '#f1f5f9',
+    marginBottom: 20, alignItems: 'center', justifyContent: 'center',
+  },
+  miscDetailRow: { marginBottom: 16 },
+  miscDetailLabel: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 6 },
+  miscDetailInput: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 12,
+    fontSize: 15, color: '#1e293b', borderWidth: 1, borderColor: '#e2e8f0',
+  },
+  miscDetailBtns: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  miscSaveBtn: {
+    flex: 1, backgroundColor: '#8B7355', borderRadius: 12, padding: 16, alignItems: 'center',
+  },
+  miscSaveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  miscDeleteBtn: {
+    flex: 1, backgroundColor: '#fef2f2', borderRadius: 12, padding: 16, alignItems: 'center',
+    borderWidth: 1, borderColor: '#fecaca',
+  },
+  miscDeleteBtnText: { color: '#ef4444', fontSize: 16, fontWeight: '600' },
 });

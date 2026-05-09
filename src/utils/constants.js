@@ -1,5 +1,5 @@
 export const CATEGORIES = [
-  '全部', '上衣', '裤子', '裙子', '鞋子', '帽子', '包包', '其他',
+  '全部', '上衣', '裤子', '裙子', '鞋子', '帽子', '包包', '其他', '杂物',
 ];
 
 export const CATEGORY_COLORS = {
@@ -10,6 +10,7 @@ export const CATEGORY_COLORS = {
   帽子: '#96CEB4',
   包包: '#FFEAA7',
   其他: '#DDA0DD',
+  杂物: '#8B7355',
 };
 
 export const PAGE_LINKS = [

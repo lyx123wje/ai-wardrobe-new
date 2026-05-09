@@ -103,7 +103,7 @@ export default function Home() {
   const isSelectedLocked = selected >= 0 && lockedItems.has(selected);
 
   return (
-    <ImageBackground source={require('../assets/3.png')} style={styles.canvas} resizeMode="cover">
+    <ImageBackground source={require('../assets/4.png')} style={styles.canvas} resizeMode="cover">
       {ITEMS.map((item, i) => (
         <FloatingItem
           key={item.path}

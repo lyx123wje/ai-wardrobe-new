@@ -31,3 +31,7 @@ export function fetchStats() {
 export function markAllClean() {
   return api.post('/wardrobe/mark_all_clean');
 }
+
+export function askWardrobe(question) {
+  return api.post('/wardrobe/ask', { question });
+}
