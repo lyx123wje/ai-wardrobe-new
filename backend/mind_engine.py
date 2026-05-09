@@ -1,10 +1,13 @@
 import json
 import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
 
 # 内存缓存角色人格数据，避免重复读文件
 _personas_cache = None
+_persona_prompts_cache = {}
 
 
 def load_personas():
@@ -100,7 +103,7 @@ def persona_think(persona_id, user_problem, clothing_tag):
     """
     完整角色推理流程：
     1. 根据 persona_id 查找对应角色人格
-    2. 构建该角色的 System Prompt
+    2. 构建该角色的 System Prompt（穿搭模式或思维训练模式）
     3. 调用 DeepSeek LLM 获取角色化回复
     """
     personas = load_personas()
@@ -113,13 +116,204 @@ def persona_think(persona_id, user_problem, clothing_tag):
             "error": f"角色ID '{persona_id}' 不存在"
         }
 
-    system_prompt = build_system_prompt(persona, clothing_tag)
+    # 如果没有穿搭标签（即思维训练室模式），使用房间 System Prompt
+    if not clothing_tag:
+        system_prompt = build_room_system_prompt(persona, user_problem)
+    else:
+        system_prompt = build_system_prompt(persona, clothing_tag)
+
     response_text = call_llm(system_prompt, user_problem)
 
     return {
         "persona_name": persona["name"],
         "response_text": response_text,
         "error": None
+    }
+
+
+def load_persona_prompt(persona_id):
+    """从 backend/personas/ 目录加载角色的思维框架 .md 文件"""
+    global _persona_prompts_cache
+    if persona_id in _persona_prompts_cache:
+        return _persona_prompts_cache[persona_id]
+
+    # 尝试多个可能的文件名
+    personas_dir = os.path.join(os.path.dirname(__file__), "personas")
+    possible_names = [
+        f"{persona_id}.md",
+        f"{persona_id.replace('_', '-')}.md",
+    ]
+    prompt_path = None
+    for name in possible_names:
+        candidate = os.path.join(personas_dir, name)
+        if os.path.exists(candidate):
+            prompt_path = candidate
+            break
+
+    if not prompt_path:
+        # 如果找不到 .md 文件，回退到用 personas.json 中的简短描述
+        return None
+
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    _persona_prompts_cache[persona_id] = content
+    return content
+
+
+def build_room_system_prompt(persona, question):
+    """为思维训练室构建角色 System Prompt，优先使用蒸馏产物 .md 文件"""
+    persona_id = persona["id"]
+    persona_prompt_md = load_persona_prompt(persona_id)
+
+    if persona_prompt_md:
+        # 使用蒸馏产物构建 prompt
+        return (
+            f"{persona_prompt_md}\n\n"
+            f"---\n\n"
+            f"现在有人向你提出了一个问题。请以第一人称「我」的口吻回复，"
+            f"完全代入你的人物设定、思维方式和表达风格。"
+            f"用中文回复，控制在300字以内。"
+            f"可以引用你的人物经历和名言来支撑观点。\n\n"
+            f"当前问题：{question}"
+        )
+    else:
+        # 回退到用 personas.json 中的简短描述
+        return (
+            f"你是「{persona['name']}」，{persona['bio']}\n\n"
+            f"现在有人向你提出了一个问题。请以第一人称「我」的口吻回复，"
+            f"完全代入你的人物设定、思维方式和表达风格。"
+            f"用中文回复，控制在300字以内。\n\n"
+            f"当前问题：{question}"
+        )
+
+
+def broadcast_think(persona_ids, question):
+    """
+    广播模式：一个问题同时抛给 N 位高人
+    使用 ThreadPoolExecutor 并行调用 DeepSeek
+    """
+    personas = load_personas()
+    results = []
+
+    def ask_one(pid):
+        persona = next((p for p in personas if p["id"] == pid), None)
+        if not persona:
+            return {"persona_id": pid, "persona_name": "", "response_text": f"未找到角色: {pid}"}
+
+        system_prompt = build_room_system_prompt(persona, question)
+        response_text = call_llm(system_prompt, question)
+        return {
+            "persona_id": pid,
+            "persona_name": persona["name"],
+            "persona_style": persona.get("style", ""),
+            "response_text": response_text
+        }
+
+    with ThreadPoolExecutor(max_workers=min(len(persona_ids), 6)) as executor:
+        futures = {executor.submit(ask_one, pid): pid for pid in persona_ids}
+        for future in as_completed(futures):
+            try:
+                results.append(future.result(timeout=30))
+            except Exception as e:
+                pid = futures[future]
+                results.append({
+                    "persona_id": pid,
+                    "persona_name": pid,
+                    "response_text": f"该角色回复超时：{e}"
+                })
+
+    # 保持原始顺序
+    results.sort(key=lambda r: persona_ids.index(r["persona_id"]) if r["persona_id"] in persona_ids else 999)
+    return results
+
+
+def debate_send(room_id, persona_ids, current_speaker_id, user_message, history, topic):
+    """
+    群聊辩论模式：下一位高人发言
+
+    参数:
+        room_id: 会话ID
+        persona_ids: 当前群聊成员ID列表
+        current_speaker_id: 指定谁发言（空字符串则自动选择下一位）
+        user_message: 用户最新消息（可能为空）
+        history: 群聊历史 [{speaker, speakerName, content}, ...]
+        topic: 辩论议题
+    """
+    personas = load_personas()
+
+    # 如果未指定发言人，自动选择下一位
+    if not current_speaker_id:
+        # 找历史中发言次数最少的人
+        speak_count = {pid: 0 for pid in persona_ids}
+        for msg in history:
+            if msg.get("speaker") in speak_count:
+                speak_count[msg["speaker"]] += 1
+
+        # 排除用户
+        speak_count.pop("user", None)
+        if not speak_count:
+            return {"speaker_id": "", "speaker_name": "", "response_text": "无可用发言人"}
+
+        # 选发言次数最少的（如果有并列，随机选）
+        min_count = min(speak_count.values())
+        candidates = [pid for pid, cnt in speak_count.items() if cnt == min_count]
+        import random
+        current_speaker_id = random.choice(candidates)
+
+    persona = next((p for p in personas if p["id"] == current_speaker_id), None)
+    if not persona:
+        return {"speaker_id": current_speaker_id, "speaker_name": "", "response_text": f"未找到角色: {current_speaker_id}"}
+
+    # 构建群聊历史文本
+    history_text = ""
+    for msg in history[-10:]:  # 只保留最近10条
+        sp_name = msg.get("speakerName", msg.get("speaker", ""))
+        history_text += f"【{sp_name}】: {msg.get('content', '')}\n"
+
+    # 获取该角色的思维框架
+    persona_prompt_md = load_persona_prompt(current_speaker_id)
+
+    if persona_prompt_md:
+        system_prompt = (
+            f"{persona_prompt_md}\n\n"
+            f"---\n\n"
+            f"你正在参加一场多人辩论。辩论议题是：「{topic}」\n\n"
+            f"辩论参与者：\n"
+        )
+    else:
+        system_prompt = (
+            f"你是「{persona['name']}」，{persona['bio']}\n\n"
+            f"你正在参加一场多人辩论。辩论议题是：「{topic}」\n\n"
+            f"辩论参与者：\n"
+        )
+
+    # 列出所有参与者
+    for pid in persona_ids:
+        p = next((pp for pp in personas if pp["id"] == pid), None)
+        if p:
+            system_prompt += f"- {p['name']}（{p.get('style', '')}）\n"
+
+    system_prompt += f"\n对话历史：\n{history_text}\n" if history_text else "\n目前还没有人发言。\n"
+
+    system_prompt += (
+        f"\n现在轮到「{persona['name']}」发言。"
+        f"请以第一人称「我」的口吻，完全代入你的角色设定来发言。"
+        f"你可以回应、反驳、补充前面的人说的话，也可以提出全新的观点。"
+        f"保持你的人物风格和语言特色。如果前人的观点和你冲突，大胆反驳。"
+        f"用中文回复，控制在250字以内。"
+    )
+
+    user_msg = ""
+    if user_message:
+        user_msg = f"用户刚刚说：{user_message}"
+
+    response_text = call_llm(system_prompt, user_msg if user_msg else "请发言")
+
+    return {
+        "speaker_id": current_speaker_id,
+        "speaker_name": persona["name"],
+        "response_text": response_text
     }
 
 

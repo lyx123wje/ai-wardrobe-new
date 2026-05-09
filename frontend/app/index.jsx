@@ -15,7 +15,7 @@ import resellXml from '../src/assets/svg/卖了还钱.js';
 const { width: W, height: H } = Dimensions.get('window');
 
 const ITEMS = [
-  { path: '/dressing-cognition', label: '穿着认知', svg: cognitionXml, color: '#6366f1' },
+  { path: '/dressing-cognition', label: '思维训练', svg: cognitionXml, color: '#6366f1' },
   { path: '/wardrobe',           label: '衣柜',     svg: wardrobeXml,   color: '#8b5cf6' },
   { path: '/laundry-basket',     label: '脏衣篓',   svg: laundryXml,    color: '#ec4899' },
   { path: '/outfit-calendar',    label: '穿搭日历', svg: calendarXml,   color: '#f59e0b' },
@@ -25,13 +25,13 @@ const ITEMS = [
 ];
 
 const DEFAULT_COORDS = [
-  { x: W * -0.386, y: H * 0.189, size: 800 },  // 穿着认知
-  { x: W * -0.515, y: H * 0.094, size: 800 },  // 衣柜
-  { x: W * -0.423, y: H * 0.368, size: 445 },  // 脏衣篓
-  { x: W *  0.132, y: H * 0.550, size: 420 },  // 穿搭日历
-  { x: W * -0.452, y: H * 0.062, size: 633 },  // 穿搭实验室
-  { x: W * -0.096, y: H * -0.056, size: 639 },  // 统计
-  { x: W * -0.158, y: H * 0.423, size: 533 },  // 卖了还钱
+  { x: W * -0.386, y: H * 0.177, size: 800 },  // 穿着认知
+  { x: W * -0.541, y: H * 0.082, size: 800 },  // 衣柜
+  { x: W * -0.449, y: H * 0.356, size: 445 },  // 脏衣篓
+  { x: W *  0.106, y: H * 0.503, size: 420 },  // 穿搭日历
+  { x: W * -0.426, y: H * 0.062, size: 633 },  // 穿搭实验室
+  { x: W * -0.122, y: H * -0.056, size: 639 },  // 统计
+  { x: W * -0.184, y: H * 0.387, size: 533 },  // 卖了还钱
 ];
 
 const DEFAULT_HIT = [
@@ -116,6 +116,7 @@ export default function Home() {
           debugMode={debugMode}
           selected={selected === i}
           isLocked={lockedItems.has(i)}
+          disabled={item.disabled}
           onSelect={() => { setSelected(i); }}
           onNavigate={() => router.push(item.path)}
         />
@@ -265,13 +266,13 @@ export default function Home() {
 }
 
 // ── 单个 SVG 浮动项 ──
-function FloatingItem({ svg, label, color, index, coord, hitArea, debugMode, selected, isLocked, onSelect, onNavigate }) {
+function FloatingItem({ svg, label, color, index, coord, hitArea, debugMode, selected, isLocked, disabled, onSelect, onNavigate }) {
   const floatY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
 
-  // 浮动动画（调试模式下暂停选中项）
+  // 浮动动画（调试模式下暂停选中项；index===0 穿着认知不浮动；disabled 项不浮动）
   useEffect(() => {
-    if (debugMode && selected) { floatY.setValue(0); return; }
+    if (disabled || (debugMode && selected) || index === 0) { floatY.setValue(0); return; }
     const t = setTimeout(() => {
       Animated.loop(
         Animated.sequence([
@@ -281,7 +282,7 @@ function FloatingItem({ svg, label, color, index, coord, hitArea, debugMode, sel
       ).start();
     }, index * 500);
     return () => clearTimeout(t);
-  }, [debugMode, selected]);
+  }, [debugMode, selected, disabled]);
 
   const onPressIn = () => {
     if (debugMode) return;

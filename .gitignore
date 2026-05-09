@@ -9,6 +9,9 @@ __pycache__/
 wardrobe.db
 backend/.env
 
+# Claude
+.claude/
+
 # OS
 .DS_Store
 nul

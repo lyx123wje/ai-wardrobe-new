@@ -1,5 +1,6 @@
 import io
 import base64
+import uuid
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from rembg import remove
@@ -7,7 +8,7 @@ from rembg import remove
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG
 from clothing_engine import init_clothing_engine, predict_category
 from portrait_engine import process_portrait_image, list_hairstyles
-from mind_engine import load_personas, match_personas, persona_think, ask_wardrobe_butler
+from mind_engine import load_personas, match_personas, persona_think, ask_wardrobe_butler, broadcast_think, debate_send
 
 # 初始化 Flask 应用
 app = Flask(__name__)
@@ -249,8 +250,8 @@ def persona_think_api():
         user_problem = data.get("user_problem", "")
         clothing_tag = data.get("clothing_tag", "")
 
-        if not persona_id or not user_problem or not clothing_tag:
-            return jsonify({"status": "error", "message": "缺少 persona_id、user_problem 或 clothing_tag"}), 400
+        if not persona_id or not user_problem:
+            return jsonify({"status": "error", "message": "缺少 persona_id 或 user_problem"}), 400
 
         result = persona_think(persona_id, user_problem, clothing_tag)
         result["status"] = "success"
@@ -258,6 +259,84 @@ def persona_think_api():
 
     except Exception as e:
         print(f"[错误] 角色推理出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ========== 思维训练室接口 ==========
+
+@app.route('/api/room/broadcast', methods=['POST'])
+def room_broadcast():
+    """
+    广播模式：一个问题同时抛给多位高人
+    请求体: { persona_ids: [...], question: "xxx" }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        persona_ids = data.get("persona_ids", [])
+        question = data.get("question", "")
+
+        if not persona_ids or not isinstance(persona_ids, list):
+            return jsonify({"status": "error", "message": "缺少 persona_ids 数组"}), 400
+        if not question:
+            return jsonify({"status": "error", "message": "缺少 question"}), 400
+
+        results = broadcast_think(persona_ids, question)
+        return jsonify({
+            "status": "success",
+            "question": question,
+            "responses": results,
+            "count": len(results)
+        })
+
+    except Exception as e:
+        print(f"[错误] 广播思考出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/room/debate/send', methods=['POST'])
+def room_debate_send():
+    """
+    群聊辩论模式：下一位高人发言
+    请求体: {
+      room_id: "会话ID",
+      persona_ids: [...],
+      current_speaker_id: "",
+      user_message: "xxx",
+      history: [...],
+      topic: "辩论议题"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        room_id = data.get("room_id", str(uuid.uuid4()))
+        persona_ids = data.get("persona_ids", [])
+        current_speaker_id = data.get("current_speaker_id", "")
+        user_message = data.get("user_message", "")
+        history = data.get("history", [])
+        topic = data.get("topic", "")
+
+        if not persona_ids or not isinstance(persona_ids, list):
+            return jsonify({"status": "error", "message": "缺少 persona_ids 数组"}), 400
+        if not topic:
+            return jsonify({"status": "error", "message": "缺少 topic"}), 400
+
+        # 确保 room_id 有值
+        if not room_id:
+            room_id = str(uuid.uuid4())
+
+        result = debate_send(room_id, persona_ids, current_speaker_id, user_message, history, topic)
+        result["room_id"] = room_id
+        result["status"] = "success"
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[错误] 辩论发言出错: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

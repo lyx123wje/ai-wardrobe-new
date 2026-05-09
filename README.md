@@ -1,57 +1,75 @@
 # AI衣橱 (AI Wardrobe)
 
-> 智能衣物管理系统 — 拍照识别、衣柜管理、AI穿搭顾问
+> 智能衣物管理系统 + 思维训练室 — 拍照识别、衣柜管理、多位高人AI对话
 
 ---
 
 ## 项目结构
 
 ```
-ai-wardrobe-new/
-├── README.md                     # 本文件
-├── frontend/                     # Expo React Native 移动端
-│   ├── app/                      # 页面（Expo Router）
-│   │   ├── index.jsx             # 首页 — SVG浮动导航
-│   │   ├── wardrobe.jsx          # 衣柜 + 杂物栏 + 智能管家
-│   │   ├── laundry-basket.jsx    # 脏衣篓
-│   │   ├── dressing-cognition.jsx
-│   │   ├── ootd-lab.jsx
+ai-wardrobe/
+├── README.md
+├── skills/                        # 女娲蒸馏人物Skill（14位）
+│   ├── wang-yangming-perspective/ # 王阳明 · 心学宗师
+│   ├── paul-graham-perspective/   # Paul Graham · 创业教父
+│   ├── zhang-yiming-perspective/  # 张一鸣 · 理性主义
+│   ├── andrej-karpathy-perspective/
+│   ├── ilya-sutskever-perspective/
+│   ├── mrbeast-perspective/
+│   ├── trump-perspective/
+│   ├── steve-jobs-perspective/
+│   ├── elon-musk-perspective/
+│   ├── munger-perspective/
+│   ├── feynman-perspective/
+│   ├── naval-perspective/
+│   ├── taleb-perspective/
+│   └── zhangxuefeng-perspective/
+├── frontend/
+│   ├── app/
+│   │   ├── index.jsx                   # 首页 SVG浮动导航
+│   │   ├── wardrobe.jsx                # 衣柜 + 杂物栏 + 智能管家
+│   │   ├── laundry-basket.jsx          # 脏衣篓
+│   │   ├── dressing-cognition.jsx      # 🆕 思维训练室（重写）
+│   │   ├── ootd-lab.jsx                # 穿搭实验室（可视化穿搭编辑器）
 │   │   ├── outfit-calendar.jsx
 │   │   ├── statistics.jsx
 │   │   └── resell-center.jsx
 │   ├── src/
-│   │   ├── api/                  # API 请求层
-│   │   │   ├── client.js         # Axios 实例
-│   │   │   ├── wardrobe.js       # 衣物 CRUD + 管家问答
-│   │   │   ├── misc.js           # 杂物 CRUD
-│   │   │   ├── outfits.js        # 穿搭日志
-│   │   │   ├── personas.js       # 角色匹配
-│   │   │   └── portraits.js      # 抠图
-│   │   ├── components/           # 可复用组件
-│   │   │   ├── AddItemModal.jsx  # 批量添加衣物（AI识别）
-│   │   │   ├── ClothingCard.jsx  # 衣物网格卡片
-│   │   │   ├── DetailModal.jsx   # 衣物详情/编辑
-│   │   │   ├── MiscItemCard.jsx  # 杂物网格卡片
-│   │   │   ├── MiscAddModal.jsx  # 添加杂物
-│   │   │   ├── ButlerChat.jsx    # 衣柜智能管家对话
-│   │   │   └── FloatingButton.jsx
-│   │   ├── assets/svg/           # SVG 图标
-│   │   └── utils/constants.js    # 常量（分类、颜色）
-│   ├── assets/                   # 图片资源
-│   ├── test-docs/                # 测试文档
-│   ├── app.json                  # Expo 配置
-│   └── package.json
-│
-└── backend/                      # Flask 后端 API
-    ├── app.py                    # 主入口 + 全部路由
-    ├── database.py               # SQLite 数据库层
-    ├── mind_engine.py            # DeepSeek AI 引擎（管家+角色）
-    ├── clothing_engine.py        # MobileNetV2 衣物分类
-    ├── portrait_engine.py        # rembg 人像抠图
-    ├── config.py                 # 环境配置读取
-    ├── personas.json             # 6种穿搭角色人格
-    ├── requirements.txt          # Python 依赖
-    └── .env.example              # 环境变量模板
+│   │   ├── api/
+│   │   │   ├── client.js
+│   │   │   ├── wardrobe.js
+│   │   │   ├── misc.js
+│   │   │   ├── outfits.js
+│   │   │   ├── personas.js             # 角色API（含无穿搭标签的对话）
+│   │   │   ├── room.js                 # 🆕 思维训练室 broadcast/debate API
+│   │   │   └── portraits.js
+│   │   └── components/
+│   │       ├── AddItemModal.jsx
+│   │       ├── ClothingCard.jsx
+│   │       ├── DetailModal.jsx
+│   │       ├── MiscItemCard.jsx
+│   │       ├── MiscAddModal.jsx
+│   │       ├── ButlerChat.jsx
+│   │       ├── FloatingButton.jsx
+│   │       ├── TypeWriter.jsx           # 🆕 逐字打字动画
+│   │       ├── PersonaGrid.jsx          # 🆕 高人选择网格（多选）
+│   │       └── ChatBubble.jsx           # 🆕 对话气泡（带打字效果）
+│   └── ...
+├── backend/
+│   ├── app.py                          # Flask 主入口 + 全部路由
+│   ├── database.py
+│   ├── mind_engine.py                  # DeepSeek引擎（管家/角色/广播/辩论）
+│   ├── clothing_engine.py
+│   ├── portrait_engine.py
+│   ├── config.py
+│   ├── personas.json                   # 26位角色人格（6穿搭 + 20思维）
+│   ├── personas/                       # 🆕 蒸馏产物 System Prompt 素材
+│   │   ├── wang-yangming.md
+│   │   ├── paul_graham.md
+│   │   ├── zhang_yiming.md
+│   │   └── ... (14个 .md)
+│   └── requirements.txt
+└── ...
 ```
 
 ---
@@ -65,13 +83,58 @@ ai-wardrobe-new/
 | 📦 杂物栏 | 杂物CRUD、拍照添加、位置管理、分类Tab切换 | ✅ |
 | 🤖 智能管家 | DeepSeek对话、物品查询/更新、标记脏衣/干净/不要 | ✅ |
 | 🧺 脏衣篓 | 脏衣列表、单件/全洗干净 | ✅ |
-| 🧠 穿着认知 | AI穿搭顾问（角色人格） | 🚧 |
-| 🧪 穿搭实验室 | 自由搭配画布 | 🚧 |
+| 🧠 **思维训练室** | 14位高人AI对话 — 倾诉/广播/辩论 | ✅ v2.0 |
+| 🧪 穿搭实验室 | 自由搭配画布、可视化穿搭编辑器 | ✅ |
 | 📅 穿搭日历 | 每日穿搭记录 + CPW | 🚧 |
 | 📊 统计 | CPW排行、分类占比 | 🚧 |
 | 💰 卖了还钱 | 转卖管理 | 🚧 |
 
-✅ = 已完成 | 🚧 = 开发中
+---
+
+## 🧠 思维训练室
+
+> "读万卷书不如行万里路，行万里路不如高人指路"
+
+虚拟会议室，容纳14位由女娲蒸馏出来的高人与用户对话。支持三种交互模式：
+
+| 模式 | 描述 | 触发 |
+|------|------|------|
+| **倾诉模式** | 选一位高人 1v1 深度对话 | 选1人 → 输入问题 → "单独请教" |
+| **广播模式** | 一个问题同时抛给N位高人，并行回答 | 选多人 → 输入问题 → "广播提问" |
+| **群聊辩论** | N位高人互看发言辩论碰撞，用户可插话 | 选多人 → 输入议题 → "发起辩论" |
+
+### 人物库（14位）
+
+| 人物 | 领域 | 来源 |
+|------|------|------|
+| 王阳明 | 心学智慧 | 女娲五阶段蒸馏 |
+| Paul Graham | 创业/写作 | GitHub 外部 Skill |
+| 张一鸣 | 产品/组织 | GitHub 外部 Skill |
+| Andrej Karpathy | AI/教育 | GitHub 外部 Skill |
+| Ilya Sutskever | AI安全 | GitHub 外部 Skill |
+| MrBeast | 内容创造 | GitHub 外部 Skill |
+| 特朗普 | 谈判/权力 | GitHub 外部 Skill |
+| 乔布斯 | 产品/设计 | GitHub 外部 Skill |
+| 马斯克 | 工程/成本 | GitHub 外部 Skill |
+| 芒格 | 价值投资 | GitHub 外部 Skill |
+| 费曼 | 科学思维 | GitHub 外部 Skill |
+| 纳瓦尔 | 自由哲学 | GitHub 外部 Skill |
+| 塔勒布 | 风险管理 | GitHub 外部 Skill |
+| 张雪峰 | 教育实用 | GitHub 外部 Skill |
+
+### 蒸馏原理
+
+人物Skill由 [女娲 · Skill造人术](https://github.com/alchaincyf/nuwa-skill) 蒸馏生成，包含五阶段流程：
+
+1. **Phase 0.5** — 创建目录结构
+2. **Phase 1** — 6 Agent 并行多源调研（著作/对话/表达/他者/决策/时间线）
+3. **Phase 2** — 框架提炼：心智模型（3-7个）、决策启发式（5-10条）、表达DNA
+4. **Phase 3** — 构建 SKILL.md + Agentic Protocol
+5. **Phase 4-5** — 质量验证 + 双Agent精炼
+
+蒸馏产物分两处存放：
+- `skills/[name]-perspective/SKILL.md` — 完整可运行 Skill
+- `backend/personas/[name].md` — 训练室 System Prompt 素材
 
 ---
 
@@ -132,4 +195,6 @@ npx expo start
 | GET | `/api/outfits` | 查询穿搭日志 |
 | GET | `/api/personas/list` | 角色人格列表 |
 | POST | `/api/personas/match` | 衣物→角色匹配 |
-| POST | `/api/persona_think` | 角色思维推理 |
+| POST | `/api/persona_think` | 角色思维推理（穿搭模式 / 思维训练模式） |
+| **POST** | **`/api/room/broadcast`** | **🆕 广播模式：一发多回 (ThreadPool并行)** |
+| **POST** | **`/api/room/debate/send`** | **🆕 辩论模式：轮询发言** |
