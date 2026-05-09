@@ -1,3 +1,14 @@
-node_modules
+# Frontend
+node_modules/
 .expo/
+
+# Backend
+venv/
+__pycache__/
+*.pyc
+wardrobe.db
+backend/.env
+
+# OS
+.DS_Store
 nul
