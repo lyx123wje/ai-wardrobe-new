@@ -4,7 +4,7 @@ import { CATEGORY_COLORS } from '../utils/constants';
 
 function getImageSource(processedImage) {
   if (!processedImage) return null;
-  if (processedImage.startsWith('data:')) {
+  if (processedImage.startsWith('data:') || processedImage.startsWith('http') || processedImage.startsWith('file:')) {
     return { uri: processedImage };
   }
   return { uri: `data:image/jpeg;base64,${processedImage}` };
