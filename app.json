@@ -23,7 +23,11 @@
       "package": "com.aiwardrobe.app"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      ["expo-image-picker", {
+        "photosPermission": "允许 AI 衣橱访问相册以添加衣物照片",
+        "cameraPermission": "允许 AI 衣橱访问相机以拍摄衣物照片"
+      }]
     ],
     "experiments": {
       "typedRoutes": true
