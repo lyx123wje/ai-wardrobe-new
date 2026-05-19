@@ -1,10 +1,24 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable, Modal,
   ActivityIndicator, ScrollView, KeyboardAvoidingView,
   Platform, Alert,
 } from 'react-native';
 import { askWardrobe } from '../api/wardrobe';
+
+// 聊天记录持久化存储键
+const STORAGE_KEY = '@butler_chat_history';
+
+// 简单的内存存储（生产环境建议使用 @react-native-async-storage/async-storage）
+const inMemoryStorage = {
+  data: null,
+  getItem: () => Promise.resolve(inMemoryStorage.data),
+  setItem: (value) => {
+    inMemoryStorage.data = value;
+    return Promise.resolve();
+  },
+};
+const storage = inMemoryStorage;
 
 const QUICK_QUESTIONS = [
   '什么东西在哪？',
@@ -18,8 +32,47 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
 
+  // 加载聊天历史
+  const loadHistory = useCallback(async () => {
+    try {
+      const saved = await storage.getItem();
+      if (saved) {
+        const history = JSON.parse(saved);
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(history);
+        }
+      }
+    } catch (err) {
+      console.warn('加载聊天历史失败:', err);
+    }
+  }, []);
+
+  // 保存聊天历史
+  const saveHistory = useCallback(async (history) => {
+    try {
+      await storage.setItem(JSON.stringify(history));
+    } catch (err) {
+      console.warn('保存聊天历史失败:', err);
+    }
+  }, []);
+
+  // 组件挂载时加载历史
+  useEffect(() => {
+    if (visible) {
+      loadHistory();
+    }
+  }, [visible, loadHistory]);
+
+  // 消息变化时保存
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveHistory(messages);
+    }
+  }, [messages, saveHistory]);
+
   function addMessage(type, content, extra = {}) {
-    setMessages((prev) => [...prev, { id: Date.now(), type, content, ...extra }]);
+    const newMessage = { id: Date.now(), type, content, ...extra };
+    setMessages((prev) => [...prev, newMessage]);
     // 滚动到底部
     setTimeout(() => {
       scrollRef.current?.scrollToEnd?.({ animated: true });
@@ -163,6 +216,20 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
               {msg.relatedItems.map((item, idx) => renderRelatedItem(item, idx))}
             </View>
           )}
+          {/* Diary search results */}
+          {msg.actions && msg.actions.filter(a => a.type === 'search_diary' && a.results?.length > 0).map(action => (
+            <View key="diary-results" style={styles.diaryResults}>
+              <Text style={styles.diaryResultTitle}>
+                找到 {action.count} 条相关日记
+              </Text>
+              {action.results.map(entry => (
+                <View key={entry.id} style={styles.diaryResultRow}>
+                  <Text style={styles.diaryResultDate}>{entry.log_date}</Text>
+                  <Text style={styles.diaryResultContent}>{entry.content}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
         </View>
         {isUser && (
           <View style={styles.avatarUser}>
@@ -361,4 +428,13 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: '#cbd5e1' },
   sendBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  diaryResults: {
+    marginTop: 12, backgroundColor: '#fefce8', borderRadius: 10, padding: 12,
+  },
+  diaryResultTitle: { fontSize: 13, fontWeight: '700', color: '#d97706', marginBottom: 8 },
+  diaryResultRow: {
+    backgroundColor: '#fff', borderRadius: 8, padding: 10, marginBottom: 6,
+  },
+  diaryResultDate: { fontSize: 11, fontWeight: '600', color: '#94a3b8', marginBottom: 2 },
+  diaryResultContent: { fontSize: 13, color: '#334155', lineHeight: 19 },
 });

@@ -2,27 +2,24 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 
 const STYLE_PRESETS = {
-  '心学智慧':      { color: '#6366f1', emoji: '🧘' },
-  '旷达人生':      { color: '#f59e0b', emoji: '🌊' },
-  '理想主义':      { color: '#ef4444', emoji: '⚡' },
-  '温柔共情':      { color: '#ec4899', emoji: '🌸' },
-  '自我主张':      { color: '#8b5cf6', emoji: '👑' },
-  '周到温暖':      { color: '#10b981', emoji: '☕' },
-  '荒诞哲学':      { color: '#06b6d4', emoji: '🎪' },
-  // 13 external skills
-  '创业教父':      { color: '#f97316', emoji: '✍️' },
-  '理性主义':      { color: '#3b82f6', emoji: '🧠' },
-  'AI教育':        { color: '#8b5cf6', emoji: '🤖' },
-  'AI安全':        { color: '#6366f1', emoji: '🔮' },
-  '内容创造':      { color: '#ef4444', emoji: '📺' },
-  '交易权力':      { color: '#dc2626', emoji: '🇺🇸' },
-  '产品哲学':      { color: '#1d1d1f', emoji: '🍎' },
-  '工程思维':      { color: '#0ea5e9', emoji: '🚀' },
-  '价值投资':      { color: '#059669', emoji: '📊' },
-  '科学思维':      { color: '#7c3aed', emoji: '🔬' },
-  '自由哲学':      { color: '#d97706', emoji: '💎' },
-  '风险管理':      { color: '#475569', emoji: '🦢' },
-  '教育实用':      { color: '#0891b2', emoji: '📚' },
+  // 17 位已蒸馏的真人导师
+  '心学智慧':      { color: '#6366f1', emoji: '🧘' },   // 王阳明
+  '创业教父':      { color: '#f97316', emoji: '✍️' },   // Paul Graham
+  '理性主义':      { color: '#3b82f6', emoji: '🧠' },   // 张一鸣
+  'AI 教育':       { color: '#8b5cf6', emoji: '🤖' },   // Andrej Karpathy
+  'AI 安全':       { color: '#6366f1', emoji: '🔮' },   // Ilya Sutskever
+  '内容创造':      { color: '#ef4444', emoji: '📺' },   // MrBeast
+  '谈判权力':      { color: '#dc2626', emoji: '🇺🇸' },   // 特朗普
+  '产品设计':      { color: '#1d1d1f', emoji: '🍎' },   // 乔布斯
+  '第一性原理':    { color: '#0ea5e9', emoji: '🚀' },   // 马斯克
+  '价值投资':      { color: '#059669', emoji: '📊' },   // 芒格
+  '科学思维':      { color: '#7c3aed', emoji: '🔬' },   // 费曼
+  '自由哲学':      { color: '#d97706', emoji: '💎' },   // 纳瓦尔
+  '风险管理':      { color: '#475569', emoji: '🦢' },   // 塔勒布
+  '教育实用':      { color: '#0891b2', emoji: '📚' },   // 张雪峰
+  '自我主导':      { color: '#ec4899', emoji: '👑' },   // 大S
+  '反套路真实':    { color: '#f43f5e', emoji: '💋' },   // 小S
+  '文学自律':      { color: '#0d9488', emoji: '🏃' },   // 村上春树
 };
 
 const FALLBACK_COLORS = ['#6366f1','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'];

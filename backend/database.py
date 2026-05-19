@@ -1,15 +1,31 @@
 import sqlite3
 import os
+import threading
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "wardrobe.db")
 
+# 线程本地存储连接，每个线程维护一个连接
+_thread_local = threading.local()
+
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """获取线程本地数据库连接，避免频繁创建销毁连接"""
+    if not hasattr(_thread_local, "conn"):
+        _thread_local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _thread_local.conn.row_factory = sqlite3.Row
+        _thread_local.conn.execute("PRAGMA journal_mode=WAL")
+        _thread_local.conn.execute("PRAGMA foreign_keys=ON")
+    return _thread_local.conn
+
+
+def close_connection():
+    """关闭当前线程的数据库连接"""
+    if hasattr(_thread_local, "conn"):
+        try:
+            _thread_local.conn.close()
+            del _thread_local.conn
+        except:
+            pass
 
 
 def init_db():
@@ -62,6 +78,15 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS diary_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            log_date TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS misc_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -77,8 +102,56 @@ def init_db():
     conn.close()
     print("[数据库] SQLite 初始化完成")
 
+# ── Diary CRUD ──
 
-# ── Wardrobe CRUD ──
+def create_diary_entry(log_date, content):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO diary_entries (log_date, content) VALUES (?, ?)", (log_date, content))
+    eid = c.lastrowid
+    conn.commit()
+    row = c.execute("SELECT * FROM diary_entries WHERE id = ?", (eid,)).fetchone()
+    conn.close()
+    return dict(row)
+
+def list_diary_entries(start_date=None, end_date=None):
+    conn = get_connection()
+    if start_date and end_date:
+        rows = conn.execute(
+            "SELECT * FROM diary_entries WHERE log_date BETWEEN ? AND ? ORDER BY log_date DESC, id DESC",
+            (start_date, end_date)
+        ).fetchall()
+    elif start_date:
+        rows = conn.execute(
+            "SELECT * FROM diary_entries WHERE log_date = ? ORDER BY id DESC", (start_date,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM diary_entries ORDER BY log_date DESC, id DESC LIMIT 100"
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def search_diary_entries(keyword):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM diary_entries WHERE content LIKE ? ORDER BY log_date DESC LIMIT 20",
+        (f"%{keyword}%",)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def update_diary_entry(entry_id, content):
+    conn = get_connection()
+    conn.execute("UPDATE diary_entries SET content = ? WHERE id = ?", (content, entry_id))
+    conn.commit()
+    conn.close()
+
+def delete_diary_entry(entry_id):
+    conn = get_connection()
+    conn.execute("DELETE FROM diary_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
 
 def create_wardrobe_item(sub_tag, category, color="", processed_image=None,
                          original_image=None, purchase_date="", purchase_amount=0.0,

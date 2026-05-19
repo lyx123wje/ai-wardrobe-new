@@ -21,13 +21,26 @@ def process_portrait_image(img_data):
     return remove(img_data, session=session)
 
 
-def list_hairstyles():
-    """列出 static/hairstyles/ 目录下所有 .png 发型文件"""
+def list_hairstyles(base_url=""):
+    """
+    列出 static/hairstyles/ 目录下所有 .png 发型文件
+    返回包含完整访问 URL 的对象列表
+    """
     hairstyle_dir = os.path.join(os.path.dirname(__file__), "static", "hairstyles")
     if not os.path.isdir(hairstyle_dir):
         return []
+
+    base = base_url.rstrip('/') if base_url else ''
     files = sorted([
         f for f in os.listdir(hairstyle_dir)
         if f.lower().endswith(".png") and os.path.isfile(os.path.join(hairstyle_dir, f))
     ])
-    return files
+
+    return [
+        {
+            "filename": f,
+            "url": f"{base}/static/hairstyles/{f}" if base else f"/static/hairstyles/{f}",
+            "name": os.path.splitext(f)[0]
+        }
+        for f in files
+    ]

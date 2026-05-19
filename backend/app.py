@@ -1,14 +1,15 @@
 import io
 import base64
 import uuid
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from rembg import remove
+import os
 
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG
 from clothing_engine import init_clothing_engine, predict_category
 from portrait_engine import process_portrait_image, list_hairstyles
-from mind_engine import load_personas, match_personas, persona_think, ask_wardrobe_butler, broadcast_think, debate_send
+from mind_engine import load_personas, match_personas, persona_think, ask_wardrobe_butler, broadcast_think, debate_send, genius_lens, daily_quote, extract_quotes, extract_methodology, fetch_trending_topics
 
 # 初始化 Flask 应用
 app = Flask(__name__)
@@ -107,6 +108,9 @@ def home():
 
 # ========== Clothing Engine 接口 ==========
 
+# 文件大小限制：10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
 @app.route('/api/process', methods=['POST'])
 def process_clothing():
     try:
@@ -116,6 +120,12 @@ def process_clothing():
             file = request.files['image']
             if file.filename == '':
                 return jsonify({"status": "error", "message": "文件名为空"}), 400
+            # 检查文件大小
+            file.seek(0, 2)  # 移动到文件末尾
+            file_size = file.tell()
+            file.seek(0)     # 重置到文件开头
+            if file_size > MAX_FILE_SIZE:
+                return jsonify({"status": "error", "message": "文件过大，最大支持 10MB"}), 400
             img_data = file.read()
         elif request.is_json:
             data = request.get_json()
@@ -125,6 +135,9 @@ def process_clothing():
             b64_str = data['image_base64']
             if ',' in b64_str:
                 b64_str = b64_str.split(',')[1]
+            # 检查 base64 解码后的大小
+            if len(b64_str) * 0.75 > MAX_FILE_SIZE:
+                return jsonify({"status": "error", "message": "文件过大，最大支持 10MB"}), 400
             img_data = base64.b64decode(b64_str)
         else:
             return jsonify({"status": "error", "message": "请用 FormData 或 JSON 格式上传"}), 400
@@ -162,6 +175,12 @@ def process_portrait():
             file = request.files['image']
             if file.filename == '':
                 return jsonify({"status": "error", "message": "文件名为空"}), 400
+            # 检查文件大小
+            file.seek(0, 2)
+            file_size = file.tell()
+            file.seek(0)
+            if file_size > MAX_FILE_SIZE:
+                return jsonify({"status": "error", "message": "文件过大，最大支持 10MB"}), 400
             img_data = file.read()
         elif request.is_json:
             data = request.get_json()
@@ -171,6 +190,9 @@ def process_portrait():
             b64_str = data['image_base64']
             if ',' in b64_str:
                 b64_str = b64_str.split(',')[1]
+            # 检查 base64 解码后的大小
+            if len(b64_str) * 0.75 > MAX_FILE_SIZE:
+                return jsonify({"status": "error", "message": "文件过大，最大支持 10MB"}), 400
             img_data = base64.b64decode(b64_str)
         else:
             return jsonify({"status": "error", "message": "请用 FormData 或 JSON 格式上传"}), 400
@@ -191,10 +213,19 @@ def process_portrait():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/static/hairstyles/<filename>')
+def serve_hairstyle(filename):
+    """提供发型图片静态文件"""
+    hairstyle_dir = os.path.join(os.path.dirname(__file__), "static", "hairstyles")
+    return send_from_directory(hairstyle_dir, filename)
+
+
 @app.route('/api/hairstyles/list', methods=['GET'])
 def hairstyles_list():
     try:
-        hairstyles = list_hairstyles()
+        # 从请求中获取基础URL用于构建完整URL
+        base_url = f"{request.scheme}://{request.host}"
+        hairstyles = list_hairstyles(base_url=base_url)
         return jsonify({"hairstyles": hairstyles})
     except Exception as e:
         print(f"[错误] 发型列表出错: {e}")
@@ -338,6 +369,118 @@ def room_debate_send():
     except Exception as e:
         print(f"[错误] 辩论发言出错: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ========== 天才视角周报 (The Genius Lens) ==========
+
+@app.route('/api/genius_lens', methods=['POST'])
+def genius_lens_endpoint():
+    """
+    天才视角周报：输入话题列表 → 自动匹配角色 + 生成跨时空点评
+    请求体: { topics: [{"title": "...", "summary": "...", "keywords": ["..."]}] }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        topics = data.get("topics", [])
+
+        if not topics or not isinstance(topics, list):
+            return jsonify({"status": "error", "message": "缺少 topics 数组"}), 400
+        if len(topics) > 3:
+            return jsonify({"status": "error", "message": "最多支持3个话题"}), 400
+
+        result = genius_lens(topics)
+        result["status"] = "success"
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[错误] 天才视角周报出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ========== 每日金句 ==========
+
+@app.route('/api/quotes/daily', methods=['GET'])
+def quotes_daily():
+    """
+    随机获取1位高人的金句
+    返回: {persona_id, persona_name, persona_style, quotes: [...]}
+    """
+    try:
+        result = daily_quote()
+        result["status"] = "success"
+        return jsonify(result)
+    except Exception as e:
+        print(f"[错误] 每日金句出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/quotes/<persona_id>', methods=['GET'])
+def quotes_by_persona(persona_id):
+    """
+    获取指定高人的金句
+    返回: {persona_id, persona_name, persona_style, quotes: [...]}
+    """
+    try:
+        result = extract_quotes(persona_id)
+        result["status"] = "success"
+        return jsonify(result)
+    except Exception as e:
+        print(f"[错误] 获取金句出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ========== 跨人物对比 ==========
+
+@app.route('/api/methodology/compare', methods=['POST'])
+def methodology_compare():
+    """
+    解析多位高人的 .md 文件，提取核心心智模型 + 决策启发式
+    请求体: {persona_ids: [...], question: "..."}
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        persona_ids = data.get("persona_ids", [])
+        question = data.get("question", "")
+
+        if not persona_ids or not isinstance(persona_ids, list):
+            return jsonify({"status": "error", "message": "缺少 persona_ids 数组"}), 400
+        if len(persona_ids) < 2:
+            return jsonify({"status": "error", "message": "至少需要选择2位高人"}), 400
+
+        results = extract_methodology(persona_ids, question)
+        return jsonify({
+            "status": "success",
+            "question": question,
+            "comparisons": results,
+            "count": len(results)
+        })
+
+    except Exception as e:
+        print(f"[错误] 跨人物对比出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ========== 热搜抓取 ==========
+
+@app.route('/api/trending', methods=['GET'])
+def trending_topics():
+    """
+    获取微博热搜排行
+    返回: {topics: [{title, rank, hot}, ...], source: "tenapi"|"vvhan"|"cache"}
+    """
+    try:
+        result = fetch_trending_topics()
+        result["status"] = "success"
+        return jsonify(result)
+    except Exception as e:
+        print(f"[错误] 热搜抓取出错: {e}")
+        return jsonify({"status": "error", "message": str(e), "topics": []}), 500
 
 
 # ========== 内嵌 API 测试页 ==========
@@ -781,6 +924,54 @@ def api_delete_misc(item_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ========== 日记 API ==========
+
+@app.route('/api/diary', methods=['POST'])
+def api_create_diary():
+    try:
+        data = request.get_json()
+        log_date = data.get("log_date", "")
+        content = data.get("content", "")
+        if not content:
+            return jsonify({"status": "error", "message": "缺少 content"}), 400
+        entry = db.create_diary_entry(log_date, content)
+        return jsonify({"status": "success", "entry": entry})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/diary', methods=['GET'])
+def api_list_diary():
+    try:
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+        entries = db.list_diary_entries(start_date, end_date)
+        return jsonify({"status": "success", "entries": entries, "count": len(entries)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/diary/<int:entry_id>', methods=['PUT'])
+def api_update_diary(entry_id):
+    try:
+        data = request.get_json()
+        if not data or "content" not in data:
+            return jsonify({"status": "error", "message": "缺少 content"}), 400
+        db.update_diary_entry(entry_id, data["content"])
+        return jsonify({"status": "success", "message": "日记已更新"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/diary/<int:entry_id>', methods=['DELETE'])
+def api_delete_diary(entry_id):
+    try:
+        db.delete_diary_entry(entry_id)
+        return jsonify({"status": "success", "message": "日记已删除"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ========== 衣柜智能管家 ==========
 
 @app.route('/api/wardrobe/ask', methods=['POST'])
@@ -835,6 +1026,28 @@ def api_wardrobe_ask():
                     item_id = action.get("item_id")
                     if item_id:
                         db.update_wardrobe_item(item_id, is_unwanted=0)
+                        action["status"] = "done"
+                        executed_actions.append(action)
+                elif action_type == "create_diary":
+                    content = action.get("content", "")
+                    log_date = action.get("date", "")
+                    if content:
+                        entry = db.create_diary_entry(log_date, content)
+                        action["diary_id"] = entry["id"]
+                        action["status"] = "done"
+                        executed_actions.append(action)
+                elif action_type == "search_diary":
+                    keyword = action.get("keyword", "")
+                    if keyword:
+                        entries = db.search_diary_entries(keyword)
+                        action["results"] = entries
+                        action["count"] = len(entries)
+                        action["status"] = "done"
+                        executed_actions.append(action)
+                elif action_type == "delete_diary":
+                    diary_id = action.get("diary_id")
+                    if diary_id:
+                        db.delete_diary_entry(diary_id)
                         action["status"] = "done"
                         executed_actions.append(action)
             except Exception as e:

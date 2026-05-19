@@ -1,22 +1,26 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, ScrollView, Image,
+  View, Text, StyleSheet, Pressable, ScrollView, Image, TextInput,
   ActivityIndicator, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchOutfits, fetchOutfitByDate, deleteOutfit } from '../src/api/outfits';
+import api from '../src/api/client';
 import MonthCalendar from '../src/components/MonthCalendar';
 
 export default function OutfitCalendarScreen() {
   const router = useRouter();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth()); // 0-11
+  const [month, setMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState(null);
   const [outfits, setOutfits] = useState([]);
   const [selectedOutfit, setSelectedOutfit] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [diaryEntries, setDiaryEntries] = useState([]);
+  const [diaryInput, setDiaryInput] = useState('');
+  const [diarySaving, setDiarySaving] = useState(false);
 
   const firstOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month + 1, 0).getDate();
@@ -44,6 +48,7 @@ export default function OutfitCalendarScreen() {
 
   const handleSelectDate = useCallback(async (dateKey) => {
     setSelectedDate(dateKey);
+    loadDiary(dateKey);
     const cached = outfits.find(o => o.log_date === dateKey);
     if (cached) {
       setSelectedOutfit(cached);
@@ -76,6 +81,31 @@ export default function OutfitCalendarScreen() {
       },
     ]);
   }, [loadMonth]);
+
+  const loadDiary = useCallback(async (dateKey) => {
+    try {
+      const res = await api.get('/diary', { params: { start_date: dateKey, end_date: dateKey } });
+      setDiaryEntries(res.data?.entries || []);
+    } catch { setDiaryEntries([]); }
+  }, []);
+
+  const saveDiary = useCallback(async () => {
+    const txt = diaryInput.trim();
+    if (!txt || !selectedDate) return;
+    setDiarySaving(true);
+    try {
+      await api.post('/diary', { log_date: selectedDate, content: txt });
+      setDiaryInput('');
+      loadDiary(selectedDate);
+    } catch { Alert.alert('保存失败'); } finally { setDiarySaving(false); }
+  }, [diaryInput, selectedDate, loadDiary]);
+
+  const deleteDiary = useCallback(async (entryId) => {
+    try {
+      await api.delete(`/diary/${entryId}`);
+      loadDiary(selectedDate);
+    } catch { Alert.alert('删除失败'); }
+  }, [selectedDate, loadDiary]);
 
   const handleAddOutfit = useCallback(() => {
     const date = selectedDate || firstOfMonth;
@@ -210,6 +240,39 @@ export default function OutfitCalendarScreen() {
           </View>
         )}
 
+        {/* 日记区 - 选中日期时显示 */}
+        {selectedDate && (
+          <View style={styles.cpwSection}>
+            <Text style={styles.sectionTitle}>日记 · {selectedDate}</Text>
+            {diaryEntries.map(entry => (
+              <View key={entry.id} style={styles.diaryRow}>
+                <Text style={styles.diaryContent}>{entry.content}</Text>
+                <Text style={styles.diaryMeta}>{entry.created_at?.slice(0, 10) || selectedDate}</Text>
+                <Pressable onPress={() => deleteDiary(entry.id)} style={styles.diaryDel}>
+                  <Text style={styles.diaryDelText}>删除</Text>
+                </Pressable>
+              </View>
+            ))}
+            <View style={styles.diaryInputRow}>
+              <TextInput
+                style={styles.diaryInput}
+                value={diaryInput}
+                onChangeText={setDiaryInput}
+                placeholder="写日记..."
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
+              <Pressable
+                style={[styles.diarySaveBtn, !diaryInput.trim() && { opacity: 0.5 }]}
+                onPress={saveDiary}
+                disabled={!diaryInput.trim() || diarySaving}
+              >
+                <Text style={styles.diarySaveText}>{diarySaving ? '...' : '记'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* CPW 排行 */}
         {cpwRanking.length > 0 && (
           <View style={styles.cpwSection}>
@@ -296,4 +359,23 @@ const styles = StyleSheet.create({
   rankNum: { fontSize: 14, fontWeight: '700', color: '#94a3b8', width: 36 },
   rankName: { flex: 1, fontSize: 14, fontWeight: '500', color: '#334155' },
   rankCpw: { fontSize: 14, fontWeight: '700', color: '#d97706' },
+  // 日记
+  diaryRow: {
+    backgroundColor: '#fefce8', borderRadius: 10, padding: 12, marginBottom: 8,
+  },
+  diaryContent: { fontSize: 14, color: '#334155', lineHeight: 20, marginBottom: 4 },
+  diaryMeta: { fontSize: 11, color: '#94a3b8' },
+  diaryDel: { position: 'absolute', top: 10, right: 12 },
+  diaryDelText: { fontSize: 11, color: '#ef4444' },
+  diaryInputRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  diaryInput: {
+    flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, backgroundColor: '#fff',
+    minHeight: 40, color: '#1e293b',
+  },
+  diarySaveBtn: {
+    backgroundColor: '#f59e0b', borderRadius: 10,
+    paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center',
+  },
+  diarySaveText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

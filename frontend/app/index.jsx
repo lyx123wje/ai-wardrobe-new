@@ -12,6 +12,7 @@ import labXml from '../src/assets/svg/穿搭实验室.js';
 import statsXml from '../src/assets/svg/统计.js';
 import resellXml from '../src/assets/svg/卖了还钱.js';
 
+
 const { width: W, height: H } = Dimensions.get('window');
 
 const ITEMS = [
