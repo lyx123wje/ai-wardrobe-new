@@ -20,20 +20,37 @@
       "adaptiveIcon": {
         "backgroundColor": "#6366f1"
       },
-      "package": "com.aiwardrobe.app"
+      "package": "com.aiwardrobe.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-router",
-      ["expo-image-picker", {
-        "photosPermission": "允许 AI 衣橱访问相册以添加衣物照片",
-        "cameraPermission": "允许 AI 衣橱访问相机以拍摄衣物照片"
-      }]
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 AI 衣橱访问相册以添加衣物照片",
+          "cameraPermission": "允许 AI 衣橱访问相机以拍摄衣物照片"
+        }
+      ]
     ],
+    "updates": {
+      "url": "https://u.expo.dev/47328a9d-81a5-412b-8afc-534587c67647"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://10.29.137.80:5000"
-    }
+      "apiBaseUrl": "http://10.29.137.80:5000",
+      "router": {},
+      "eas": {
+        "projectId": "47328a9d-81a5-412b-8afc-534587c67647"
+      }
+    },
+    "owner": "riyo_ale"
   }
 }

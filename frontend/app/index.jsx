@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, Animated, Pressable, ScrollView, ImageBackground } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, Platform, useWindowDimensions, Animated, Pressable, ScrollView, ImageBackground } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SvgXml } from 'react-native-svg';
 
@@ -13,8 +13,6 @@ import statsXml from '../src/assets/svg/统计.js';
 import resellXml from '../src/assets/svg/卖了还钱.js';
 
 
-const { width: W, height: H } = Dimensions.get('window');
-
 const ITEMS = [
   { path: '/dressing-cognition', label: '思维训练', svg: cognitionXml, color: '#6366f1' },
   { path: '/wardrobe',           label: '衣柜',     svg: wardrobeXml,   color: '#8b5cf6' },
@@ -23,16 +21,6 @@ const ITEMS = [
   { path: '/ootd-lab',           label: '穿搭实验室', svg: labXml,      color: '#10b981' },
   { path: '/statistics',         label: '统计',     svg: statsXml,      color: '#06b6d4' },
   { path: '/resell-center',      label: '卖了还钱', svg: resellXml,     color: '#ef4444' },
-];
-
-const DEFAULT_COORDS = [
-  { x: W * -0.386, y: H * 0.177, size: 800 },  // 穿着认知
-  { x: W * -0.541, y: H * 0.082, size: 800 },  // 衣柜
-  { x: W * -0.449, y: H * 0.356, size: 445 },  // 脏衣篓
-  { x: W *  0.106, y: H * 0.503, size: 420 },  // 穿搭日历
-  { x: W * -0.426, y: H * 0.062, size: 633 },  // 穿搭实验室
-  { x: W * -0.122, y: H * -0.056, size: 639 },  // 统计
-  { x: W * -0.184, y: H * 0.387, size: 533 },  // 卖了还钱
 ];
 
 const DEFAULT_HIT = [
@@ -47,12 +35,32 @@ const DEFAULT_HIT = [
 
 export default function Home() {
   const router = useRouter();
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+
+  // 网页端限制为手机视口比例，防止 SVG 绝对坐标溢出
+  const W = isWeb ? Math.min(winW || 430, 430) : winW;
+  const H = isWeb ? Math.min(winH || 932, W * 2.17) : winH;
+
+  const defaultCoords = useMemo(() => [
+    { x: W * -0.386, y: H * 0.177, size: 800 },
+    { x: W * -0.541, y: H * 0.082, size: 800 },
+    { x: W * -0.449, y: H * 0.356, size: 445 },
+    { x: W *  0.106, y: H * 0.503, size: 420 },
+    { x: W * -0.426, y: H * 0.062, size: 633 },
+    { x: W * -0.122, y: H * -0.056, size: 639 },
+    { x: W * -0.184, y: H * 0.387, size: 533 },
+  ], [W, H]);
+
   const [debugMode, setDebugMode] = useState(false);
   const [selected, setSelected] = useState(-1);
-  const [coords, setCoords] = useState(DEFAULT_COORDS);
+  const [coords, setCoords] = useState(defaultCoords);
   const [hitAreas, setHitAreas] = useState(DEFAULT_HIT);
   const [lockedItems, setLockedItems] = useState(new Set());
   const [panelExpanded, setPanelExpanded] = useState(false);
+
+  // 窗口尺寸变化时（网页缩放）重新校准坐标
+  useEffect(() => { setCoords(defaultCoords); }, [defaultCoords]);
 
   // SVG 缩放/位移
   const nudge = (key, delta) => {

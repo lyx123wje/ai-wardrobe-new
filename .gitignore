@@ -1,6 +1,7 @@
 # Frontend
 node_modules/
 .expo/
+frontend/dist/
 
 # Backend
 venv/
