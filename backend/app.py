@@ -1,12 +1,16 @@
 import io
 import base64
 import uuid
+import bcrypt
+import jwt
+import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from rembg import remove
 import os
 
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+print("[系统] 正在加载衣服识别模型(MobileNetV2)，首次运行需下载约14MB，请耐心等待...")
 from clothing_engine import init_clothing_engine, predict_category
 from portrait_engine import process_portrait_image, list_hairstyles
 from mind_engine import load_personas, match_personas, persona_think, ask_wardrobe_butler, broadcast_think, debate_send, genius_lens, daily_quote, extract_quotes, extract_methodology, fetch_trending_topics
@@ -14,6 +18,10 @@ from mind_engine import load_personas, match_personas, persona_think, ask_wardro
 # 初始化 Flask 应用
 app = Flask(__name__)
 CORS(app)
+
+# ── JWT 配置 ──
+SECRET_KEY = os.environ.get('JWT_SECRET', 'ai-wardrobe-jwt-secret-key-2024')
+TOKEN_EXPIRY_DAYS = 30
 
 # 预热 Clothing Engine（MobileNetV2 模型）
 init_clothing_engine()
@@ -23,87 +31,50 @@ print("[系统] 衣服引擎初始化完成")
 # Mind Engine 的 personas.json 按需读取
 
 
+# ── JWT 工具函数 ──
+
+def generate_token(user_id, nickname):
+    payload = {
+        'user_id': user_id,
+        'nickname': nickname,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=TOKEN_EXPIRY_DAYS),
+        'iat': datetime.datetime.utcnow(),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+
+
+def decode_token(token):
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+def require_auth(f):
+    """装饰器：从 Authorization Bearer header 解析用户身份"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify({"status": "error", "message": "未登录，请先注册或登录"}), 401
+        token = auth_header[7:]
+        payload = decode_token(token)
+        if not payload:
+            return jsonify({"status": "error", "message": "Token 无效或已过期，请重新登录"}), 401
+        request.user_id = payload.get('user_id')
+        request.nickname = payload.get('nickname')
+        return f(*args, **kwargs)
+    return decorated
+
+
 # --- 核心接口区 ---
 
 @app.route('/', methods=['GET'])
 def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>AI 衣橱后端 v3.0 测试</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-            h1 { color: #333; }
-            .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; }
-            #result { margin-top: 20px; }
-            #resultImg { max-width: 300px; margin: 20px 0; }
-            .tag { display: inline-block; padding: 5px 15px; border-radius: 20px; margin: 5px; }
-            .sub-tag { background-color: #e3f2fd; color: #1976d2; }
-            .category { background-color: #e8f5e9; color: #388e3c; }
-        </style>
-    </head>
-    <body>
-        <h1>AI 衣橱后端服务 v3.0 已启动</h1>
-        <p>可用 API:</p>
-        <ul>
-            <li>POST /api/process - 衣物抠图+分类</li>
-            <li>POST /api/process_portrait - 人像抠图</li>
-            <li>GET /api/hairstyles/list - 发型列表</li>
-            <li>GET /api/personas/list - 角色人格列表</li>
-            <li>POST /api/personas/match - 衣物→角色匹配</li>
-            <li>POST /api/persona_think - 角色思维推理</li>
-        </ul>
-
-        <div class="upload-area">
-            <h3>上传图片测试</h3>
-            <input type="file" id="imageInput" accept="image/*">
-            <button onclick="uploadImage()" style="margin-top: 20px; padding: 10px 20px;">上传并处理</button>
-        </div>
-
-        <div id="result"></div>
-
-        <script>
-            function uploadImage() {
-                const input = document.getElementById('imageInput');
-                const resultDiv = document.getElementById('result');
-
-                if (!input.files[0]) {
-                    resultDiv.innerHTML = '<p style="color: red;">请先选择一张图片</p>';
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append('image', input.files[0]);
-
-                resultDiv.innerHTML = '<p>AI 正在处理中...</p>';
-
-                fetch('/api/process', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        resultDiv.innerHTML = `
-                            <h3>处理成功！</h3>
-                            <p><strong>大类：</strong><span class="tag category">${data.category}</span></p>
-                            <p><strong>小标签：</strong><span class="tag sub-tag">${data.sub_tag}</span></p>
-                            <p><strong>原始索引：</strong>${data.raw_index}</p>
-                            <img id="resultImg" src="${data.processed_image_base64}" alt="处理后的图片">
-                        `;
-                    } else {
-                        resultDiv.innerHTML = `<p style="color: red;">错误：${data.message}</p>`;
-                    }
-                })
-                .catch(error => {
-                    resultDiv.innerHTML = `<p style="color: red;">请求失败：${error}</p>`;
-                });
-            }
-        </script>
-    </body>
-    </html>
-    """
+    return jsonify({"status": "ok", "service": "AI Wardrobe API v4.0"})
 
 
 # ========== Clothing Engine 接口 ==========
@@ -481,200 +452,6 @@ def trending_topics():
     except Exception as e:
         print(f"[错误] 热搜抓取出错: {e}")
         return jsonify({"status": "error", "message": str(e), "topics": []}), 500
-
-
-# ========== 内嵌 API 测试页 ==========
-
-@app.route('/test', methods=['GET'])
-def test_page():
-    return r"""
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <title>API 冒烟测试 - AI 衣橱 v3.0</title>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #f0f2f5; padding: 20px; }
-            h1 { text-align: center; color: #1a1a2e; margin-bottom: 8px; }
-            .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 24px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1100px; margin: 0 auto; }
-            .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-            .card h3 { border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
-            .method { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #fff; }
-            .get  { background: #27ae60; }
-            .post { background: #e67e22; }
-            .card p.path { color: #888; font-size: 13px; margin-bottom: 12px; }
-            textarea, input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: 'Consolas','Courier New',monospace; margin-bottom: 8px; resize: vertical; }
-            textarea { min-height: 50px; }
-            button { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; color: #fff; background: #3b82f6; }
-            button:hover { background: #2563eb; }
-            button:disabled { background: #aaa; cursor: not-allowed; }
-            .result { margin-top: 10px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 6px; font-size: 12px; font-family: 'Consolas','Courier New',monospace; white-space: pre-wrap; word-break: break-all; max-height: 250px; overflow-y: auto; display: none; }
-            .result.show { display: block; }
-            .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-left: 8px; }
-            .status-ok { background: #d4edda; color: #155724; }
-            .status-err { background: #f8d7da; color: #721c24; }
-            .half { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .span2 { grid-column: 1 / -1; }
-        </style>
-    </head>
-    <body>
-        <h1>AI 衣橱后端 v3.0 — API 冒烟测试</h1>
-        <p class="subtitle">所有接口一次性测试 / 无需 Postman</p>
-
-        <div class="grid">
-            <div class="card">
-                <h3><span class="method post">POST</span> 衣物去背+分类</h3>
-                <p class="path">/api/process</p>
-                <input type="file" id="file1" accept="image/*"><br>
-                <button onclick="testProcess()">发送测试</button>
-                <div class="result" id="r1"></div>
-                <img id="img1" style="max-width:100%;display:none;margin-top:8px;border-radius:8px;">
-            </div>
-
-            <div class="card">
-                <h3><span class="method post">POST</span> 人像抠图</h3>
-                <p class="path">/api/process_portrait</p>
-                <input type="file" id="file2" accept="image/*"><br>
-                <button onclick="testPortrait()">发送测试</button>
-                <div class="result" id="r2"></div>
-                <img id="img2" style="max-width:100%;display:none;margin-top:8px;border-radius:8px;">
-            </div>
-
-            <div class="card">
-                <h3><span class="method get">GET</span> 发型列表</h3>
-                <p class="path">/api/hairstyles/list</p>
-                <button onclick="testHairstyles()">发送测试</button>
-                <div class="result" id="r3"></div>
-            </div>
-
-            <div class="card">
-                <h3><span class="method get">GET</span> 角色人格列表</h3>
-                <p class="path">/api/personas/list</p>
-                <button onclick="testPersonasList()">发送测试</button>
-                <div class="result" id="r4"></div>
-            </div>
-
-            <div class="card">
-                <h3><span class="method post">POST</span> 衣物→角色匹配</h3>
-                <p class="path">/api/personas/match</p>
-                <div class="half">
-                    <input type="text" id="match_tag" placeholder="衣物小标签（如 卫衣）" value="卫衣">
-                    <input type="text" id="match_cat" placeholder="衣物大类（如 上衣）" value="上衣">
-                </div>
-                <button onclick="testPersonasMatch()">发送测试</button>
-                <div class="result" id="r5"></div>
-            </div>
-
-            <div class="card span2">
-                <h3><span class="method post">POST</span> 角色思维推理 (LLM) ⚡ DeepSeek</h3>
-                <p class="path">/api/persona_think</p>
-                <div class="half">
-                    <select id="think_persona" style="padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
-                        <option value="minimalist_master">极简大师</option>
-                        <option value="avant_garde_designer">前卫设计师</option>
-                        <option value="vintage_collector">古着收藏家</option>
-                        <option value="streetwear_kid">街头潮人</option>
-                        <option value="romantic_poet">浪漫诗人</option>
-                        <option value="practical_advisor">实用顾问</option>
-                    </select>
-                    <input type="text" id="think_tag" placeholder="衣物标签" value="白衬衫">
-                </div>
-                <textarea id="think_problem" placeholder="你的穿搭问题...">今天下雨去上班，穿什么合适？</textarea>
-                <button id="btnThink" onclick="testPersonaThink()">调用 DeepSeek 推理</button>
-                <div class="result" id="r6"></div>
-            </div>
-        </div>
-
-        <script>
-            const BASE = '';
-
-            function el(id) { return document.getElementById(id); }
-
-            async function apiCall(method, url, body) {
-                const opts = { method };
-                if (body instanceof FormData) opts.body = body;
-                else if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
-                const t0 = Date.now();
-                try {
-                    const res = await fetch(BASE + url, opts);
-                    const ms = Date.now() - t0;
-                    const data = await res.json();
-                    return { ok: res.ok, status: res.status, ms, data };
-                } catch (e) {
-                    return { ok: false, status: 0, ms: Date.now() - t0, error: e.message };
-                }
-            }
-
-            function showResult(id, result) {
-                const div = el(id);
-                div.classList.add('show');
-                const statusHtml = result.ok
-                    ? '<span class="status-badge status-ok">' + result.status + ' OK ' + result.ms + 'ms</span>'
-                    : '<span class="status-badge status-err">' + (result.status || 'NET') + ' FAIL ' + result.ms + 'ms</span>';
-                div.innerHTML = statusHtml + '\n' + JSON.stringify(result.data || result.error, null, 2);
-            }
-
-            // 1. process
-            async function testProcess() {
-                const file = el('file1').files[0];
-                if (!file) { alert('请先选择图片'); return; }
-                const fd = new FormData(); fd.append('image', file);
-                const r = await apiCall('POST', '/api/process', fd);
-                showResult('r1', r);
-                const img = el('img1');
-                if (r.data && r.data.processed_image_base64) {
-                    img.src = r.data.processed_image_base64; img.style.display = 'block';
-                } else { img.style.display = 'none'; }
-            }
-
-            // 2. portrait
-            async function testPortrait() {
-                const file = el('file2').files[0];
-                if (!file) { alert('请先选择图片'); return; }
-                const fd = new FormData(); fd.append('image', file);
-                const r = await apiCall('POST', '/api/process_portrait', fd);
-                showResult('r2', r);
-                const img = el('img2');
-                if (r.data && r.data.processed_image_base64) {
-                    img.src = r.data.processed_image_base64; img.style.display = 'block';
-                } else { img.style.display = 'none'; }
-            }
-
-            // 3. hairstyles
-            async function testHairstyles() {
-                showResult('r3', await apiCall('GET', '/api/hairstyles/list'));
-            }
-
-            // 4. personas list
-            async function testPersonasList() {
-                showResult('r4', await apiCall('GET', '/api/personas/list'));
-            }
-
-            // 5. personas match
-            async function testPersonasMatch() {
-                const body = { clothing_tag: el('match_tag').value, clothing_category: el('match_cat').value };
-                showResult('r5', await apiCall('POST', '/api/personas/match', body));
-            }
-
-            // 6. persona think
-            async function testPersonaThink() {
-                const btn = el('btnThink');
-                btn.disabled = true; btn.textContent = '正在调用 DeepSeek 推理中...';
-                const body = {
-                    persona_id: el('think_persona').value,
-                    user_problem: el('think_problem').value,
-                    clothing_tag: el('think_tag').value
-                };
-                const r = await apiCall('POST', '/api/persona_think', body);
-                showResult('r6', r);
-                btn.disabled = false; btn.textContent = '调用 DeepSeek 推理';
-            }
-        </script>
-    </body>
-    </html>
-    """
 
 
 # ========== 数据库 CRUD API ==========
@@ -1067,10 +844,347 @@ def api_wardrobe_ask():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ========== 用户认证 API ==========
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_auth_register():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        nickname = data.get("nickname", "").strip()
+        password = data.get("password", "")
+
+        if not nickname:
+            return jsonify({"status": "error", "message": "缺少昵称"}), 400
+        if not password or len(password) < 4:
+            return jsonify({"status": "error", "message": "密码至少需要4位"}), 400
+
+        # Check if nickname already exists
+        existing = db.get_user_by_nickname(nickname)
+        if existing:
+            return jsonify({"status": "error", "message": "该昵称已被使用"}), 409
+
+        user_id = str(uuid.uuid4())
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        user = db.create_user(user_id, nickname, password_hash)
+        token = generate_token(user_id, nickname)
+
+        return jsonify({
+            "status": "success",
+            "user_id": user_id,
+            "nickname": nickname,
+            "token": token,
+        })
+    except Exception as e:
+        print(f"[错误] 注册出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_auth_login():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
+
+        user_id = data.get("user_id", "").strip()
+        password = data.get("password", "")
+
+        if not user_id:
+            return jsonify({"status": "error", "message": "缺少 user_id"}), 400
+        if not password:
+            return jsonify({"status": "error", "message": "缺少密码"}), 400
+
+        # Try user_id first, then nickname
+        user = db.get_user_by_id(user_id)
+        if not user:
+            user = db.get_user_by_nickname(user_id)
+        if not user:
+            return jsonify({"status": "error", "message": "用户不存在"}), 404
+
+        if not bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
+            return jsonify({"status": "error", "message": "密码错误"}), 401
+
+        token = generate_token(user["id"], user["nickname"])
+        return jsonify({
+            "status": "success",
+            "user_id": user["id"],
+            "nickname": user["nickname"],
+            "token": token,
+        })
+    except Exception as e:
+        print(f"[错误] 登录出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/auth/verify', methods=['GET'])
+def api_auth_verify():
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return jsonify({"status": "success", "valid": False})
+        token = auth_header[7:]
+        payload = decode_token(token)
+        if not payload:
+            return jsonify({"status": "success", "valid": False})
+        return jsonify({
+            "status": "success",
+            "valid": True,
+            "user_id": payload.get("user_id"),
+            "nickname": payload.get("nickname"),
+        })
+    except Exception as e:
+        return jsonify({"status": "success", "valid": False, "error": str(e)}), 500
+
+
+# ========== 协作 API ==========
+from flask_socketio import SocketIO, emit, join_room, leave_room as sio_leave_room
+import eventlet
+import collab_manager
+
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+
+# ── 协作 REST 端点 ──
+
+@app.route('/api/collab/rooms', methods=['POST'])
+@require_auth
+def api_collab_create_room():
+    try:
+        code = collab_manager.create_room(request.user_id, request.nickname)
+        return jsonify({
+            "status": "success",
+            "room_code": code,
+            "owner_id": request.user_id,
+            "owner_nickname": request.nickname,
+        })
+    except Exception as e:
+        print(f"[错误] 创建房间出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/collab/rooms/<room_code>/join', methods=['POST'])
+@require_auth
+def api_collab_join_room(room_code):
+    try:
+        result = collab_manager.join_room(room_code, request.user_id, request.nickname)
+        if not result:
+            return jsonify({"status": "error", "message": "房间不存在或已关闭"}), 404
+        return jsonify({"status": "success", "room": result})
+    except Exception as e:
+        print(f"[错误] 加入房间出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/collab/rooms/<room_code>', methods=['GET'])
+@require_auth
+def api_collab_get_room(room_code):
+    try:
+        room = collab_manager.get_room(room_code)
+        if not room:
+            return jsonify({"status": "error", "message": "房间不存在"}), 404
+        return jsonify({"status": "success", "room": room})
+    except Exception as e:
+        print(f"[错误] 获取房间出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/collab/share-wardrobe', methods=['POST'])
+@require_auth
+def api_collab_share_wardrobe():
+    try:
+        data = request.get_json()
+        if not data or "item_ids" not in data:
+            return jsonify({"status": "error", "message": "缺少 item_ids"}), 400
+        collab_manager.share_wardrobe(request.user_id, data["item_ids"])
+        return jsonify({"status": "success", "shared_count": len(data["item_ids"])})
+    except Exception as e:
+        print(f"[错误] 共享衣柜出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ── WebSocket 事件处理 ──
+
+@socketio.on('connect')
+def handle_connect():
+    token = request.args.get('token', '')
+    room_code = request.args.get('room_code', '')
+
+    # Also try auth header style
+    if not token:
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            token = auth[7:]
+
+    if not token:
+        emit('error', {'message': '缺少认证 token'})
+        return False
+
+    payload = decode_token(token)
+    if not payload:
+        emit('error', {'message': 'Token 无效'})
+        return False
+
+    user_id = payload.get('user_id')
+    nickname = payload.get('nickname')
+
+    if not room_code:
+        emit('error', {'message': '缺少 room_code'})
+        return False
+
+    room = collab_manager.get_room(room_code)
+    if not room:
+        emit('error', {'message': '房间不存在'})
+        return False
+
+    # Join the SocketIO room
+    join_room(room_code)
+    collab_manager.set_member_sid(room_code, user_id, request.sid)
+
+    # Notify the other member
+    partner = collab_manager.get_partner(room_code, user_id)
+    if partner and partner.get('sid'):
+        emit('partner_joined', {
+            'user_id': user_id,
+            'nickname': nickname,
+        }, to=partner['sid'])
+
+    # Send room info back
+    emit('room_info', {
+        'room_code': room_code,
+        'members': room.get('members', {}),
+        'partner': partner,
+    })
+    print(f"[协作] {nickname}({user_id}) 加入房间 {room_code}")
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    # Find which room this user is in and leave them
+    for code in list(collab_manager.rooms.keys()):
+        room = collab_manager.rooms.get(code)
+        if room:
+            for uid, member in list(room.get('members', {}).items()):
+                if member.get('sid') == request.sid:
+                    collab_manager.leave_room(code, uid)
+                    # Notify partner
+                    partner = collab_manager.get_partner(code, uid)
+                    if partner and partner.get('sid'):
+                        emit('partner_left', {
+                            'user_id': uid,
+                            'nickname': member.get('nickname'),
+                        }, to=partner['sid'])
+                    sio_leave_room(code)
+                    print(f"[协作] {member.get('nickname')} 离开房间 {code}")
+                    return
+
+
+# 画布同步事件
+@socketio.on('canvas_element_added')
+def handle_element_added(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('canvas_element_added', data, room=room_code, include_self=False)
+
+
+@socketio.on('canvas_element_updated')
+def handle_element_updated(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('canvas_element_updated', data, room=room_code, include_self=False)
+
+
+@socketio.on('canvas_element_removed')
+def handle_element_removed(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('canvas_element_removed', data, room=room_code, include_self=False)
+
+
+@socketio.on('canvas_background_changed')
+def handle_bg_changed(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('canvas_background_changed', data, room=room_code, include_self=False)
+
+
+@socketio.on('chat_message')
+def handle_chat_message(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('chat_message', {
+        'from': data.get('from'),
+        'nickname': data.get('nickname'),
+        'text': data.get('text'),
+        'timestamp': data.get('timestamp'),
+    }, room=room_code, include_self=False)
+
+
+@socketio.on('request_full_state')
+def handle_request_full_state(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('full_state_sync', data, room=room_code, include_self=False)
+
+
+# WebRTC 信令
+@socketio.on('webrtc_offer')
+def handle_webrtc_offer(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('webrtc_offer', {
+        'from': data.get('from'),
+        'sdp': data.get('sdp'),
+        'candidates': data.get('candidates'),
+    }, room=room_code, include_self=False)
+
+
+@socketio.on('webrtc_answer')
+def handle_webrtc_answer(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('webrtc_answer', {
+        'from': data.get('from'),
+        'sdp': data.get('sdp'),
+        'candidates': data.get('candidates'),
+    }, room=room_code, include_self=False)
+
+
+@socketio.on('webrtc_ice_candidate')
+def handle_ice_candidate(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('webrtc_ice_candidate', data, room=room_code, include_self=False)
+
+
+# ── 共享衣柜推送 ──
+@socketio.on('share_wardrobe_broadcast')
+def handle_share_wardrobe(data):
+    room_code = data.get('room_code')
+    if not room_code:
+        return
+    emit('wardrobe_shared', {
+        'from_user_id': data.get('from_user_id'),
+        'from_nickname': data.get('from_nickname'),
+        'item_ids': data.get('item_ids'),
+    }, room=room_code, include_self=False)
+
+
 # --- 启动入口 ---
 if __name__ == '__main__':
     print("[系统] AI 衣橱后端 v4.0 启动中...")
     print(f"[系统] 监听地址: http://{FLASK_HOST}:{FLASK_PORT}")
-    print("[系统] 已加载引擎: 衣服 / 人像 / 思维 / 数据库")
+    print("[系统] 已加载引擎: 衣服 / 人像 / 思维 / 数据库 / 协作")
     print("[系统] 等待请求...")
-    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
+    socketio.run(app, host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)

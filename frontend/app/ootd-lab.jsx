@@ -10,7 +10,6 @@ import {
   TextInput,
   Modal,
   Alert,
-  ToastAndroid,
   Platform,
   ActivityIndicator,
   PanResponder,
@@ -19,7 +18,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { format, subDays } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import { captureRef } from 'react-native-view-shot';
-import * as MediaLibrary from 'expo-media-library';
 import OutfitCanvas, { CANVAS_W, CANVAS_H } from '../src/components/OutfitCanvas';
 import { fetchWardrobe, createWardrobeItem } from '../src/api/wardrobe';
 import { createOutfit, fetchOutfitByDate } from '../src/api/outfits';
@@ -30,6 +28,16 @@ import {
   PRESET_COLORS,
   SCALE_RANGE,
 } from '../src/utils/constants';
+
+// ── Collab imports ──
+import { useAuth } from './_layout';
+import { showToast } from '../src/utils/toast';
+import * as collabSocket from '../src/services/collabSocket';
+import * as voiceChat from '../src/services/voiceChat';
+import CollabInviteModal from '../src/components/CollabInviteModal';
+import CollabChat from '../src/components/CollabChat';
+import CollabToolbar from '../src/components/CollabToolbar';
+import ShareWardrobeSheet from '../src/components/ShareWardrobeSheet';
 
 function getImageSource(raw) {
   if (!raw) return null;
@@ -54,20 +62,49 @@ function generateElementId() {
 function RotationSlider({ rotation, onRotate }) {
   const TRACK_W = 130;
   const startRotation = useRef(0);
+  const startMouseX = useRef(0);
+
+  const onRotateRef = useRef(onRotate);
+  onRotateRef.current = onRotate;
+  const rotationRef = useRef(rotation);
+  rotationRef.current = rotation;
+
   const panRes = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        startRotation.current = rotation;
+        startRotation.current = rotationRef.current;
       },
       onPanResponderMove: (_, gestureState) => {
         const deg = Math.round(startRotation.current + gestureState.dx * 0.8);
-        onRotate(Math.max(-180, Math.min(180, deg)));
+        onRotateRef.current(Math.max(-180, Math.min(180, deg)));
       },
       onPanResponderRelease: () => {},
     })
   ).current;
+
+  // Web mouse support
+  const handleMouseDown = useCallback((e) => {
+    if (Platform.OS !== 'web') return;
+    e.preventDefault();
+    startRotation.current = rotation;
+    startMouseX.current = e.clientX;
+
+    const handleMouseMove = (moveEvent) => {
+      const dx = moveEvent.clientX - startMouseX.current;
+      const deg = Math.round(startRotation.current + dx * 0.8);
+      onRotate(Math.max(-180, Math.min(180, deg)));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [rotation, onRotate]);
 
   const thumbPercent = ((rotation + 180) / 360) * 100;
 
@@ -76,7 +113,8 @@ function RotationSlider({ rotation, onRotate }) {
       <View style={{ width: TRACK_W, height: 28, justifyContent: 'center' }}>
         <View style={{ width: '100%', height: 3, backgroundColor: '#E5E7EB', borderRadius: 2 }}>
           <View
-            {...panRes.panHandlers}
+            {...(Platform.OS === 'web' ? {} : panRes.panHandlers)}
+            onMouseDown={Platform.OS === 'web' ? handleMouseDown : undefined}
             style={{
               position: 'absolute',
               left: `${thumbPercent}%`,
@@ -99,17 +137,158 @@ function RotationSlider({ rotation, onRotate }) {
   );
 }
 
+function WebPositionSlider({ label, value, min, max, onChange, displayValue, thumbColor, trackColor, decimal }) {
+  const TRACK_W = 130;
+  const startValue = useRef(0);
+  const startMouseX = useRef(0);
+
+  const handleMouseDown = useCallback((e) => {
+    if (Platform.OS !== 'web') return;
+    e.preventDefault();
+    e.stopPropagation();
+    startValue.current = value;
+    startMouseX.current = e.clientX;
+
+    const range = max - min;
+    const handleMouseMove = (moveEvent) => {
+      const dx = moveEvent.clientX - startMouseX.current;
+      const ratio = range / TRACK_W;
+      const raw = startValue.current + dx * ratio;
+      const newVal = decimal
+        ? Math.max(min, Math.min(max, Math.round(raw * 10) / 10))
+        : Math.max(min, Math.min(max, Math.round(raw)));
+      onChange(newVal);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [value, min, max, onChange, decimal]);
+
+  const thumbPercent = max > min ? ((value - min) / (max - min)) * 100 : 50;
+  const display = displayValue != null ? displayValue : value;
+
+  return (
+    <View style={{ alignItems: 'center', width: TRACK_W + 20, marginBottom: 4 }}>
+      <Text style={{ fontSize: 9, color: '#6B7280', marginBottom: 2 }}>{label}: {display}</Text>
+      <View style={{ width: TRACK_W, height: 24, justifyContent: 'center' }}>
+        <View style={{ width: '100%', height: 3, backgroundColor: trackColor || '#E5E7EB', borderRadius: 2 }}>
+          <View
+            onMouseDown={handleMouseDown}
+            style={{
+              position: 'absolute',
+              left: `${thumbPercent}%`,
+              top: -7,
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              backgroundColor: thumbColor || '#6366f1',
+              marginLeft: -9,
+              cursor: 'pointer',
+            }}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ScaleSlider({ value, min, max, step, onChange, label, displayValue }) {
+  const TRACK_W = 130;
+  const startValue = useRef(0);
+  const startMouseX = useRef(0);
+
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const minRef = useRef(min);
+  minRef.current = min;
+  const maxRef = useRef(max);
+  maxRef.current = max;
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  const panRes = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startValue.current = valueRef.current;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const range = maxRef.current - minRef.current;
+        const raw = startValue.current + (gestureState.dx / TRACK_W) * range;
+        const stepped = Math.round(raw / stepRef.current) * stepRef.current;
+        onChangeRef.current(Math.max(minRef.current, Math.min(maxRef.current, Math.round(stepped * 100) / 100)));
+      },
+      onPanResponderRelease: () => {},
+    })
+  ).current;
+
+  const handleMouseDown = useCallback((e) => {
+    if (Platform.OS !== 'web') return;
+    e.preventDefault();
+    e.stopPropagation();
+    startValue.current = value;
+    startMouseX.current = e.clientX;
+
+    const range = max - min;
+    const handleMouseMove = (moveEvent) => {
+      const dx = moveEvent.clientX - startMouseX.current;
+      const raw = startValue.current + (dx / TRACK_W) * range;
+      const stepped = Math.round(raw / step) * step;
+      onChange(Math.max(min, Math.min(max, Math.round(stepped * 100) / 100)));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [value, min, max, step, onChange]);
+
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 50;
+
+  return (
+    <View style={{ alignItems: 'center', width: TRACK_W + 20, marginBottom: 4 }}>
+      <Text style={{ fontSize: 9, color: '#6B7280', marginBottom: 2 }}>{label || '缩放'}: {displayValue != null ? displayValue : `${value.toFixed(1)}x`}</Text>
+      <View style={{ width: TRACK_W, height: 28, justifyContent: 'center' }}>
+        <View style={{ width: '100%', height: 3, backgroundColor: '#E5E7EB', borderRadius: 2 }}>
+          <View
+            {...(Platform.OS === 'web' ? {} : panRes.panHandlers)}
+            onMouseDown={Platform.OS === 'web' ? handleMouseDown : undefined}
+            style={{
+              position: 'absolute',
+              left: `${percent}%`,
+              top: -7,
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              backgroundColor: '#6366f1',
+              marginLeft: -9,
+            }}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function toast(msg) {
-  if (Platform.OS === 'android') {
-    ToastAndroid.show(msg, ToastAndroid.SHORT);
-  } else {
-    Alert.alert('', msg);
-  }
+  showToast(msg);
 }
 
 export default function OOTDLabScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user } = useAuth();
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const initialDate = params.date || today;
@@ -138,9 +317,32 @@ export default function OOTDLabScreen() {
   const [saveModalName, setSaveModalName] = useState('');
   const [saveModalPreview, setSaveModalPreview] = useState(null);
 
+  // Eraser state
+  const [eraserMode, setEraserMode] = useState(false);
+  const [eraserSize, setEraserSize] = useState(25);
+  const [eraserSoftness, setEraserSoftness] = useState(0.3);
+  const [eraserStrength, setEraserStrength] = useState(1);
+  const eraserSnapshotsRef = useRef([]);
+
   const canvasRef = useRef(null);
   const searchInputRef = useRef(null);
   const pendingFaceRef = useRef(null); // 'camera' | 'gallery' | null
+
+  // ── Collab state ──
+  const [showCollabInvite, setShowCollabInvite] = useState(false);
+  const [collabRoomCode, setCollabRoomCode] = useState('');
+  const [collabConnected, setCollabConnected] = useState(false);
+  const [partnerNickname, setPartnerNickname] = useState('');
+  const [partnerUserId, setPartnerUserId] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatVisible, setChatVisible] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [showShareWardrobe, setShowShareWardrobe] = useState(false);
+  const isRemoteAction = useRef(false);
+  const pendingElementUpdates = useRef({});
+  const rafScheduled = useRef(false);
+  const selectedElementIdRef = useRef(selectedElementId);
+  selectedElementIdRef.current = selectedElementId;
 
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -208,6 +410,7 @@ export default function OOTDLabScreen() {
               ...getDefaultPosition(item.category || '其他'),
               scale: 1.0,
               rotation: 0,
+              opacity: 1,
               zIndex: 0,
             }));
           setCanvasElements(itemsForCanvas);
@@ -235,208 +438,12 @@ export default function OOTDLabScreen() {
     }
   }, [wardrobeLoaded, selectedDate]);
 
-  // Face sheet → launch picker after modal closes
-  useEffect(() => {
-    if (!showFaceSheet && pendingFaceRef.current) {
-      const source = pendingFaceRef.current;
-      pendingFaceRef.current = null;
-      setTimeout(() => startFaceImport(source), 500);
-    }
-  }, [showFaceSheet, startFaceImport]);
-
-  // Filter clothing items
-  const filteredItems = useMemo(() => {
-    let items = allItems.filter(
-      (item) => item.category !== '杂物'
-    );
-    if (activeCategory !== '全部') {
-      items = items.filter((item) => item.category === activeCategory);
-    }
-    if (searchText.trim()) {
-      const q = searchText.trim().toLowerCase();
-      items = items.filter(
-        (item) =>
-          (item.sub_tag || '').toLowerCase().includes(q) ||
-          (item.color || '').toLowerCase().includes(q) ||
-          (item.category || '').toLowerCase().includes(q) ||
-          (item.notes || '').toLowerCase().includes(q)
-      );
-    }
-    return items;
-  }, [allItems, activeCategory, searchText]);
-
-  const isItemOnCanvas = useCallback(
-    (wardrobeId) => canvasElements.some((el) => el.type === 'clothing' && el.wardrobeId === wardrobeId),
-    [canvasElements]
-  );
-
-  // Toggle item on/off canvas
-  const toggleItem = useCallback((item) => {
-    setCanvasElements((prev) => {
-      const existing = prev.find((el) => el.type === 'clothing' && el.wardrobeId === item.id);
-      if (existing) {
-        const next = prev.filter((el) => el.id !== existing.id);
-        if (selectedElementId === existing.id) {
-          setSelectedElementId(null);
-        }
-        return next;
-      }
-      const maxZ = prev.length > 0 ? Math.max(...prev.map((e) => e.zIndex)) : 0;
-      return [
-        ...prev,
-        {
-          id: generateElementId(),
-          type: 'clothing',
-          wardrobeId: item.id,
-          image: item.processed_image
-            ? (item.processed_image.startsWith('data:') || item.processed_image.startsWith('http')
-              ? item.processed_image
-              : `data:image/png;base64,${item.processed_image}`)
-            : '',
-          category: item.category || '其他',
-          name: item.sub_tag || item.name || '',
-          ...getDefaultPosition(item.category || '其他'),
-          scale: 1.0,
-          rotation: 0,
-          zIndex: maxZ + 1,
-        },
-      ];
-    });
-  }, [selectedElementId]);
-
-  // Select element
-  const onSelectElement = useCallback(
-    (id) => {
-      setSelectedElementId(id);
-      setCanvasElements((prev) => {
-        const maxZ = Math.max(...prev.map((e) => e.zIndex), 0);
-        return prev.map((el) =>
-          el.id === id ? { ...el, zIndex: maxZ + 1 } : el
-        );
-      });
-    },
-    []
-  );
-
-  // Update element position
-  const onUpdateElement = useCallback((id, updates) => {
-    setCanvasElements((prev) =>
-      prev.map((el) => (el.id === id ? { ...el, ...updates } : el))
-    );
-  }, []);
-
-  // Delete element
-  const deleteElement = useCallback(
-    (id) => {
-      setCanvasElements((prev) => prev.filter((el) => el.id !== id));
-      if (selectedElementId === id) setSelectedElementId(null);
-    },
-    [selectedElementId]
-  );
-
-  // Scale element
-  const zoomElement = useCallback((delta) => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) =>
-      prev.map((el) =>
-        el.id === selectedElementId
-          ? {
-              ...el,
-              scale: Math.max(SCALE_RANGE.min, Math.min(SCALE_RANGE.max, (el.scale || 1) + delta)),
-            }
-          : el
-      )
-    );
-  }, [selectedElementId]);
-
-  const rotateElement = useCallback((degrees) => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) =>
-      prev.map((el) =>
-        el.id === selectedElementId
-          ? { ...el, rotation: degrees }
-          : el
-      )
-    );
-  }, [selectedElementId]);
-
-  // Layer controls
-  const moveLayerUp = useCallback(() => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) => {
-      const sorted = [...prev].sort((a, b) => a.zIndex - b.zIndex);
-      const idx = sorted.findIndex((el) => el.id === selectedElementId);
-      if (idx === -1 || idx === sorted.length - 1) return prev;
-      [sorted[idx], sorted[idx + 1]] = [sorted[idx + 1], sorted[idx]];
-      return sorted.map((el, i) => ({ ...el, zIndex: i }));
-    });
-  }, [selectedElementId]);
-
-  const moveLayerDown = useCallback(() => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) => {
-      const sorted = [...prev].sort((a, b) => a.zIndex - b.zIndex);
-      const idx = sorted.findIndex((el) => el.id === selectedElementId);
-      if (idx <= 0) return prev;
-      [sorted[idx], sorted[idx - 1]] = [sorted[idx - 1], sorted[idx]];
-      return sorted.map((el, i) => ({ ...el, zIndex: i }));
-    });
-  }, [selectedElementId]);
-
-  const moveLayerTop = useCallback(() => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) => {
-      const maxZ = Math.max(...prev.map((e) => e.zIndex), 0);
-      return prev.map((el) =>
-        el.id === selectedElementId ? { ...el, zIndex: maxZ + 1 } : el
-      );
-    });
-  }, [selectedElementId]);
-
-  const moveLayerBottom = useCallback(() => {
-    if (!selectedElementId) return;
-    setCanvasElements((prev) => {
-      const minZ = Math.min(...prev.map((e) => e.zIndex), 0);
-      return prev.map((el) =>
-        el.id === selectedElementId ? { ...el, zIndex: minZ - 1 } : el
-      );
-    });
-  }, [selectedElementId]);
-
-  // Background: set color
-  const setBgColor = useCallback((color) => {
-    setCanvasBackground({ type: 'color', value: color });
-    setShowBgColorPicker(false);
-    setShowBgSheet(false);
-  }, []);
-
-  // Background: pick image
-  const pickBgImage = useCallback(async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('权限不足', '需要相册权限才能选择背景图片');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 1,
-        base64: false,
-      });
-      if (!result.canceled && result.assets?.[0]) {
-        setCanvasBackground({ type: 'image', uri: result.assets[0].uri });
-        setShowBgSheet(false);
-      }
-    } catch (e) {
-      console.error('Pick bg image error:', e);
-    }
-  }, []);
-
   // Face import flow
   const startFaceImport = useCallback(async (source) => {
     try {
       let result;
       if (source === 'camera') {
+        if (Platform.OS === 'web') return;
         const { status, granted } = await ImagePicker.requestCameraPermissionsAsync();
         if (!granted && status !== 'granted') {
           Alert.alert('权限被拒绝', '请在手机系统设置中为 Expo Go 开启相机权限');
@@ -449,10 +456,12 @@ export default function OOTDLabScreen() {
           base64Size: 1024 * 1024,
         });
       } else {
-        const { status, granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!granted && status !== 'granted') {
-          Alert.alert('权限被拒绝', '请在手机系统设置中为 Expo Go 开启相册权限');
-          return;
+        if (Platform.OS !== 'web') {
+          const { status, granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!granted && status !== 'granted') {
+            Alert.alert('权限被拒绝', '请在手机系统设置中为 Expo Go 开启相册权限');
+            return;
+          }
         }
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ['images'],
@@ -488,29 +497,563 @@ export default function OOTDLabScreen() {
     }
   }, []);
 
+  // Face sheet → launch picker after modal closes
+  useEffect(() => {
+    if (!showFaceSheet && pendingFaceRef.current) {
+      const source = pendingFaceRef.current;
+      pendingFaceRef.current = null;
+      setTimeout(() => startFaceImport(source), 500);
+    }
+  }, [showFaceSheet, startFaceImport]);
+
+  // Eraser snapshot stack: clear when eraser mode toggles off or element changes
+  useEffect(() => {
+    eraserSnapshotsRef.current = [];
+  }, [eraserMode, selectedElementId]);
+
+  // ── Collab socket listeners ──
+  useEffect(() => {
+    if (!collabConnected) return;
+
+    const handleElementAdded = (data) => {
+      isRemoteAction.current = true;
+      setCanvasElements((prev) => {
+        const exists = prev.find((el) => el.id === data.element?.id);
+        if (exists) return prev;
+        return [...prev, data.element];
+      });
+      isRemoteAction.current = false;
+    };
+
+    const handleElementUpdated = (data) => {
+      isRemoteAction.current = true;
+      setCanvasElements((prev) =>
+        prev.map((el) =>
+          el.id === data.element_id ? { ...el, ...data.updates } : el
+        )
+      );
+      isRemoteAction.current = false;
+    };
+
+    const handleElementRemoved = (data) => {
+      isRemoteAction.current = true;
+      setCanvasElements((prev) => prev.filter((el) => el.id !== data.element_id));
+      setSelectedElementId((id) => (id === data.element_id ? null : id));
+      isRemoteAction.current = false;
+    };
+
+    const handleBgChanged = (data) => {
+      setCanvasBackground(data.background);
+    };
+
+    const handleChat = (data) => {
+      setChatMessages((prev) => [...prev, { text: data.text, nickname: data.nickname, from: 'remote' }]);
+    };
+
+    const handlePartnerJoined = (data) => {
+      setPartnerNickname(data.nickname || '');
+      setPartnerUserId(data.user_id || '');
+      // Send full state sync to new joiner
+      collabSocket.emit('request_full_state', {
+        room_code: collabRoomCode,
+        elements: canvasElements,
+        background: canvasBackground,
+      });
+    };
+
+    const handlePartnerLeft = () => {
+      setPartnerNickname('');
+      setPartnerUserId('');
+      setChatMessages((prev) => [...prev, { text: '好友已离开房间', from: 'system' }]);
+    };
+
+    const handleFullState = (data) => {
+      isRemoteAction.current = true;
+      if (data.elements) setCanvasElements(data.elements);
+      if (data.background) setCanvasBackground(data.background);
+      // Reset element positions for remote items to avoid overlap
+      setTimeout(() => {
+        isRemoteAction.current = false;
+      }, 100);
+    };
+
+    const handleWardrobeShared = (data) => {
+      console.log('[Collab] Wardrobe shared by', data.from_nickname, data.item_ids);
+    };
+
+    // WebRTC handlers
+    const handleWebrtcOffer = async (d) => {
+      try {
+        const result = await voiceChat.handleAnswer(d.sdp);
+        if (result) {
+          collabSocket.emit('webrtc_answer', {
+            room_code: collabRoomCode,
+            from: user?.user_id,
+            sdp: result.sdp,
+            candidates: result.candidates,
+          });
+          d.candidates?.forEach((c) => voiceChat.addIceCandidate(c));
+        }
+      } catch (e) {
+        console.error('[WebRTC] handle offer error:', e);
+      }
+    };
+
+    const handleWebrtcAnswer = async (d) => {
+      try {
+        await voiceChat.handleAnswer(d.sdp);
+        d.candidates?.forEach((c) => voiceChat.addIceCandidate(c));
+      } catch (e) {
+        console.error('[WebRTC] handle answer error:', e);
+      }
+    };
+
+    const handleWebrtcIce = (d) => {
+      voiceChat.addIceCandidate(d.candidate || d);
+    };
+
+    collabSocket.on('canvas_element_added', handleElementAdded);
+    collabSocket.on('canvas_element_updated', handleElementUpdated);
+    collabSocket.on('canvas_element_removed', handleElementRemoved);
+    collabSocket.on('canvas_background_changed', handleBgChanged);
+    collabSocket.on('chat_message', handleChat);
+    collabSocket.on('partner_joined', handlePartnerJoined);
+    collabSocket.on('partner_left', handlePartnerLeft);
+    collabSocket.on('full_state_sync', handleFullState);
+    collabSocket.on('wardrobe_shared', handleWardrobeShared);
+    collabSocket.on('webrtc_offer', handleWebrtcOffer);
+    collabSocket.on('webrtc_answer', handleWebrtcAnswer);
+    collabSocket.on('webrtc_ice_candidate', handleWebrtcIce);
+
+    return () => {
+      collabSocket.off('canvas_element_added', handleElementAdded);
+      collabSocket.off('canvas_element_updated', handleElementUpdated);
+      collabSocket.off('canvas_element_removed', handleElementRemoved);
+      collabSocket.off('canvas_background_changed', handleBgChanged);
+      collabSocket.off('chat_message', handleChat);
+      collabSocket.off('partner_joined', handlePartnerJoined);
+      collabSocket.off('partner_left', handlePartnerLeft);
+      collabSocket.off('full_state_sync', handleFullState);
+      collabSocket.off('wardrobe_shared', handleWardrobeShared);
+      collabSocket.off('webrtc_offer', handleWebrtcOffer);
+      collabSocket.off('webrtc_answer', handleWebrtcAnswer);
+      collabSocket.off('webrtc_ice_candidate', handleWebrtcIce);
+    };
+  }, [collabConnected, collabRoomCode, canvasElements, canvasBackground, user]);
+
+  // Cleanup collab on unmount
+  useEffect(() => {
+    return () => {
+      collabSocket.disconnect();
+      voiceChat.stopVoice();
+    };
+  }, []);
+
+  // ── Collab helpers ──
+  const handleCollabRoomReady = useCallback(async (roomCode, roomData) => {
+    setCollabRoomCode(roomCode);
+    try {
+      await collabSocket.connect(roomCode);
+      setCollabConnected(true);
+      if (roomData?.room) {
+        const members = Object.values(roomData.room.members || {});
+        const partner = members.find((m) => m.nickname !== user?.nickname);
+        if (partner) {
+          setPartnerNickname(partner.nickname);
+        }
+      }
+    } catch (e) {
+      Alert.alert('连接失败', '无法连接到协作服务器');
+    }
+    setShowCollabInvite(false);
+  }, [user]);
+
+  const handleLeaveCollab = useCallback(() => {
+    collabSocket.disconnect();
+    voiceChat.stopVoice();
+    setCollabConnected(false);
+    setCollabRoomCode('');
+    setPartnerNickname('');
+    setPartnerUserId('');
+    setVoiceEnabled(false);
+    setChatVisible(false);
+    setChatMessages([]);
+  }, []);
+
+  const handleToggleVoice = useCallback(async () => {
+    if (voiceEnabled) {
+      voiceChat.stopVoice();
+      setVoiceEnabled(false);
+      return;
+    }
+    const result = await voiceChat.startMic();
+    if (result.success) {
+      setVoiceEnabled(true);
+      const offer = await voiceChat.createOffer();
+      if (offer) {
+        collabSocket.emit('webrtc_offer', {
+          room_code: collabRoomCode,
+          from: user?.user_id,
+          sdp: offer.sdp,
+          candidates: offer.candidates,
+        });
+      }
+    } else {
+      Alert.alert('语音不可用', result.error || '语音功能在此平台不可用');
+    }
+  }, [voiceEnabled, collabRoomCode, user]);
+
+  const handleToggleChat = useCallback(() => {
+    setChatVisible((prev) => !prev);
+  }, []);
+
+  const handleSendChat = useCallback((text) => {
+    const msg = { text, from: 'me', nickname: user?.nickname || '我' };
+    setChatMessages((prev) => [...prev, msg]);
+    collabSocket.emit('chat_message', {
+      room_code: collabRoomCode,
+      from: user?.user_id,
+      nickname: user?.nickname || '匿名',
+      text,
+      timestamp: new Date().toISOString(),
+    });
+  }, [collabRoomCode, user]);
+
+  const handleShareWardrobe = useCallback(() => {
+    setShowShareWardrobe(true);
+  }, []);
+
+  const handleShared = useCallback((itemIds) => {
+    collabSocket.emit('share_wardrobe_broadcast', {
+      room_code: collabRoomCode,
+      from_user_id: user?.user_id,
+      from_nickname: user?.nickname,
+      item_ids: itemIds,
+    });
+    toast(`已分享 ${itemIds.length} 件衣物给好友`);
+  }, [collabRoomCode, user]);
+
+  // ── Canvas sync emit helpers ──
+  const emitElementAdded = useCallback((element) => {
+    if (!collabConnected || isRemoteAction.current) return;
+    collabSocket.emit('canvas_element_added', {
+      room_code: collabRoomCode,
+      element,
+    });
+  }, [collabConnected, collabRoomCode]);
+
+  const emitElementUpdated = useCallback((elementId, updates) => {
+    if (!collabConnected || isRemoteAction.current) return;
+    collabSocket.emit('canvas_element_updated', {
+      room_code: collabRoomCode,
+      element_id: elementId,
+      updates,
+    });
+  }, [collabConnected, collabRoomCode]);
+
+  const emitElementRemoved = useCallback((elementId) => {
+    if (!collabConnected || isRemoteAction.current) return;
+    collabSocket.emit('canvas_element_removed', {
+      room_code: collabRoomCode,
+      element_id: elementId,
+    });
+  }, [collabConnected, collabRoomCode]);
+
+  const emitBgChanged = useCallback((background) => {
+    if (!collabConnected || isRemoteAction.current) return;
+    collabSocket.emit('canvas_background_changed', {
+      room_code: collabRoomCode,
+      background,
+    });
+  }, [collabConnected, collabRoomCode]);
+
+  // Filter clothing items
+  const filteredItems = useMemo(() => {
+    let items = allItems.filter(
+      (item) => item.category !== '杂物'
+    );
+    if (activeCategory !== '全部') {
+      items = items.filter((item) => item.category === activeCategory);
+    }
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      items = items.filter(
+        (item) =>
+          (item.sub_tag || '').toLowerCase().includes(q) ||
+          (item.color || '').toLowerCase().includes(q) ||
+          (item.category || '').toLowerCase().includes(q) ||
+          (item.notes || '').toLowerCase().includes(q)
+      );
+    }
+    return items;
+  }, [allItems, activeCategory, searchText]);
+
+  const canvasWardrobeIds = useMemo(() => {
+    const ids = new Set();
+    for (const el of canvasElements) {
+      if (el.type === 'clothing') ids.add(el.wardrobeId);
+    }
+    return ids;
+  }, [canvasElements]);
+
+  // Toggle item on/off canvas
+  const toggleItem = useCallback((item) => {
+    setCanvasElements((prev) => {
+      const existing = prev.find((el) => el.type === 'clothing' && el.wardrobeId === item.id);
+      if (existing) {
+        emitElementRemoved(existing.id);
+        const next = prev.filter((el) => el.id !== existing.id);
+        if (selectedElementId === existing.id) {
+          setSelectedElementId(null);
+        }
+        return next;
+      }
+      const maxZ = prev.length > 0 ? Math.max(...prev.map((e) => e.zIndex)) : 0;
+      const newElement = {
+        id: generateElementId(),
+        type: 'clothing',
+        wardrobeId: item.id,
+        image: item.processed_image
+          ? (item.processed_image.startsWith('data:') || item.processed_image.startsWith('http')
+            ? item.processed_image
+            : `data:image/png;base64,${item.processed_image}`)
+          : '',
+        category: item.category || '其他',
+        name: item.sub_tag || item.name || '',
+        ...getDefaultPosition(item.category || '其他'),
+        scale: 1.0,
+        rotation: 0,
+        opacity: 1,
+        zIndex: maxZ + 1,
+      };
+      emitElementAdded(newElement);
+      return [...prev, newElement];
+    });
+  }, [selectedElementId, emitElementAdded, emitElementRemoved]);
+
+  // Select element
+  const onSelectElement = useCallback(
+    (id) => {
+      setSelectedElementId(id);
+      setCanvasElements((prev) => {
+        const maxZ = Math.max(...prev.map((e) => e.zIndex), 0);
+        return prev.map((el) =>
+          el.id === id ? { ...el, zIndex: maxZ + 1 } : el
+        );
+      });
+    },
+    []
+  );
+
+  // Update element position — RAF batch for smooth 60fps drag
+  const onUpdateElement = useCallback((id, updates) => {
+    pendingElementUpdates.current[id] = {
+      ...(pendingElementUpdates.current[id] || {}),
+      ...updates,
+    };
+    if (rafScheduled.current) return;
+    rafScheduled.current = true;
+    requestAnimationFrame(() => {
+      rafScheduled.current = false;
+      const batch = pendingElementUpdates.current;
+      pendingElementUpdates.current = {};
+      setCanvasElements((prev) =>
+        prev.map((el) => { const u = batch[el.id]; return u ? { ...el, ...u } : el; })
+      );
+      Object.keys(batch).forEach((id) => emitElementUpdated(id, batch[id]));
+    });
+  }, [emitElementUpdated]);
+
+  // Delete element
+  const deleteElement = useCallback(
+    (id) => {
+      setCanvasElements((prev) => prev.filter((el) => el.id !== id));
+      if (selectedElementId === id) setSelectedElementId(null);
+      emitElementRemoved(id);
+    },
+    [selectedElementId, emitElementRemoved]
+  );
+
+  // Scale element
+  const zoomElement = useCallback((delta) => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) =>
+      prev.map((el) =>
+        el.id === selectedElementId
+          ? {
+              ...el,
+              scale: Math.max(SCALE_RANGE.min, Math.min(SCALE_RANGE.max, (el.scale || 1) + delta)),
+            }
+          : el
+      )
+    );
+    const target = canvasElements.find((el) => el.id === selectedElementId);
+    if (target) {
+      const newScale = Math.max(SCALE_RANGE.min, Math.min(SCALE_RANGE.max, (target.scale || 1) + delta));
+      emitElementUpdated(selectedElementId, { scale: newScale });
+    }
+  }, [selectedElementId, canvasElements, emitElementUpdated]);
+
+  const rotateElement = useCallback((degrees) => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) =>
+      prev.map((el) =>
+        el.id === selectedElementId
+          ? { ...el, rotation: degrees }
+          : el
+      )
+    );
+    emitElementUpdated(selectedElementId, { rotation: degrees });
+  }, [selectedElementId, emitElementUpdated]);
+
+  // Layer controls
+  const moveLayerUp = useCallback(() => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) => {
+      const sorted = [...prev].sort((a, b) => a.zIndex - b.zIndex);
+      const idx = sorted.findIndex((el) => el.id === selectedElementId);
+      if (idx === -1 || idx === sorted.length - 1) return prev;
+      [sorted[idx], sorted[idx + 1]] = [sorted[idx + 1], sorted[idx]];
+      const result = sorted.map((el, i) => ({ ...el, zIndex: i }));
+      emitElementUpdated(selectedElementId, { zIndex: result.find((el) => el.id === selectedElementId)?.zIndex });
+      return result;
+    });
+  }, [selectedElementId, emitElementUpdated]);
+
+  const moveLayerDown = useCallback(() => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) => {
+      const sorted = [...prev].sort((a, b) => a.zIndex - b.zIndex);
+      const idx = sorted.findIndex((el) => el.id === selectedElementId);
+      if (idx <= 0) return prev;
+      [sorted[idx], sorted[idx - 1]] = [sorted[idx - 1], sorted[idx]];
+      const result = sorted.map((el, i) => ({ ...el, zIndex: i }));
+      emitElementUpdated(selectedElementId, { zIndex: result.find((el) => el.id === selectedElementId)?.zIndex });
+      return result;
+    });
+  }, [selectedElementId, emitElementUpdated]);
+
+  const moveLayerTop = useCallback(() => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) => {
+      const maxZ = Math.max(...prev.map((e) => e.zIndex), 0);
+      const result = prev.map((el) =>
+        el.id === selectedElementId ? { ...el, zIndex: maxZ + 1 } : el
+      );
+      emitElementUpdated(selectedElementId, { zIndex: maxZ + 1 });
+      return result;
+    });
+  }, [selectedElementId, emitElementUpdated]);
+
+  const moveLayerBottom = useCallback(() => {
+    if (!selectedElementId) return;
+    setCanvasElements((prev) => {
+      const minZ = Math.min(...prev.map((e) => e.zIndex), 0);
+      const result = prev.map((el) =>
+        el.id === selectedElementId ? { ...el, zIndex: minZ - 1 } : el
+      );
+      emitElementUpdated(selectedElementId, { zIndex: minZ - 1 });
+      return result;
+    });
+  }, [selectedElementId, emitElementUpdated]);
+
+  // Stable slider callbacks (use ref to avoid creating new functions every render)
+  const handleScaleSliderChange = useCallback((v) => {
+    const id = selectedElementIdRef.current;
+    if (!id) return;
+    setCanvasElements((prev) => prev.map((el) => el.id === id ? { ...el, scale: v } : el));
+    emitElementUpdated(id, { scale: v });
+  }, [emitElementUpdated]);
+
+  const handleOpacitySliderChange = useCallback((v) => {
+    const id = selectedElementIdRef.current;
+    if (!id) return;
+    const op = Math.round(v * 10) / 10;
+    setCanvasElements((prev) => prev.map((el) => el.id === id ? { ...el, opacity: op } : el));
+    emitElementUpdated(id, { opacity: op });
+  }, [emitElementUpdated]);
+
+  // Eraser result callback: push prev image to undo stack before replacing
+  const handleEraserResult = useCallback((elementId, dataUrl) => {
+    setCanvasElements((prev) => {
+      const el = prev.find((e) => e.id === elementId);
+      if (el) {
+        eraserSnapshotsRef.current.push({ id: elementId, image: el.image });
+      }
+      return prev.map((el) => el.id === elementId ? { ...el, image: dataUrl } : el);
+    });
+    emitElementUpdated(elementId, { image: dataUrl });
+  }, [emitElementUpdated]);
+
+  // Eraser undo: pop last stroke from stack
+  const handleEraserUndo = useCallback(() => {
+    const snapshots = eraserSnapshotsRef.current;
+    if (snapshots.length === 0) return;
+    const snapshot = snapshots.pop();
+    setCanvasElements((prev) =>
+      prev.map((el) => el.id === snapshot.id ? { ...el, image: snapshot.image } : el)
+    );
+    emitElementUpdated(snapshot.id, { image: snapshot.image });
+  }, [emitElementUpdated]);
+
+  // Background: set color
+  const setBgColor = useCallback((color) => {
+    const bg = { type: 'color', value: color };
+    setCanvasBackground(bg);
+    emitBgChanged(bg);
+    setShowBgColorPicker(false);
+    setShowBgSheet(false);
+  }, [emitBgChanged]);
+
+  // Background: pick image
+  const pickBgImage = useCallback(async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('权限不足', '需要相册权限才能选择背景图片');
+          return;
+        }
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 1,
+        base64: false,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        const bg = { type: 'image', uri: result.assets[0].uri };
+        setCanvasBackground(bg);
+        emitBgChanged(bg);
+        setShowBgSheet(false);
+      }
+    } catch (e) {
+      console.error('Pick bg image error:', e);
+    }
+  }, [emitBgChanged]);
+
   const confirmPortrait = useCallback(() => {
     if (!portraitImage) return;
     setCanvasElements((prev) => {
       const maxZ = Math.max(...prev.map((e) => e.zIndex), 0);
-      return [
-        ...prev,
-        {
-          id: generateElementId(),
-          type: 'face',
-          wardrobeId: null,
-          image: portraitImage,
-          category: null,
-          name: '人脸',
-          ...getDefaultPosition('face'),
-          scale: 0.8,
-          rotation: 0,
-          zIndex: maxZ + 10,
-        },
-      ];
+      const newElement = {
+        id: generateElementId(),
+        type: 'face',
+        wardrobeId: null,
+        image: portraitImage,
+        category: null,
+        name: '人脸',
+        ...getDefaultPosition('face'),
+        scale: 0.8,
+        rotation: 0,
+        opacity: 1,
+        zIndex: maxZ + 10,
+      };
+      emitElementAdded(newElement);
+      return [...prev, newElement];
     });
     setPortraitImage(null);
     setShowPortraitPreview(false);
-  }, [portraitImage]);
+  }, [portraitImage, emitElementAdded]);
 
   // Save outfit: open modal with preview + name
   const openSaveModal = useCallback(async () => {
@@ -523,14 +1066,13 @@ export default function OOTDLabScreen() {
     setSaveModalName(`搭配 ${m}/${d}`);
     setSaveModalPreview(null);
     setShowSaveModal(true);
-    // Capture canvas preview in background
     try {
       if (canvasRef.current) {
         const previewUri = await captureRef(canvasRef.current, { format: 'png', quality: 0.7 });
         setSaveModalPreview(previewUri);
       }
     } catch {
-      // Preview capture failed, modal still works without image
+      // Preview capture failed
     }
   }, [canvasElements, selectedDate]);
 
@@ -544,13 +1086,11 @@ export default function OOTDLabScreen() {
         canvasElements,
         background: canvasBackground,
       });
-      // 1. Save outfit log
       await createOutfit({
         log_date: selectedDate,
         wardrobe_item_ids: wardrobeIds,
         note: noteData,
       });
-      // 2. Create wardrobe item (套装分类)
       let processedImage = '';
       try {
         if (canvasRef.current) {
@@ -558,7 +1098,7 @@ export default function OOTDLabScreen() {
           processedImage = dataUri;
         }
       } catch {
-        // Screenshot failed, save without image
+        // Screenshot failed
       }
       await createWardrobeItem({
         sub_tag: saveModalName || '未命名搭配',
@@ -579,26 +1119,36 @@ export default function OOTDLabScreen() {
     }
   }, [canvasElements, canvasBackground, selectedDate, saveModalName]);
 
-  // Export canvas to gallery
+  // Export canvas to gallery (native) or download (web)
   const exportCanvas = useCallback(async () => {
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('权限不足', '需要相册权限才能保存图片');
-        return;
-      }
       if (!canvasRef.current) {
         Alert.alert('导出失败', '画布未就绪');
         return;
       }
+      if (Platform.OS === 'web') {
+        const uri = await captureRef(canvasRef.current, { format: 'png', quality: 1.0 });
+        const link = document.createElement('a');
+        link.download = `ai-wardrobe-${selectedDate}.png`;
+        link.href = uri;
+        link.click();
+        toast('已下载到本地');
+        return;
+      }
+      const { requestPermissionsAsync, saveToLibraryAsync } = require('expo-media-library');
+      const { status } = await requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('权限不足', '需要相册权限才能保存图片');
+        return;
+      }
       const uri = await captureRef(canvasRef.current, { format: 'png', quality: 1.0 });
-      await MediaLibrary.saveToLibraryAsync(uri);
+      await saveToLibraryAsync(uri);
       toast('已保存到相册');
     } catch (e) {
       console.error('Export error:', e);
       Alert.alert('导出失败', '保存到相册时出错，请重试');
     }
-  }, []);
+  }, [selectedDate]);
 
   // Date navigation
   const goPrevDay = useCallback(() => {
@@ -619,17 +1169,29 @@ export default function OOTDLabScreen() {
     setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
   }, []);
 
-  // Selected element info
   const selectedElement = useMemo(
     () => canvasElements.find((el) => el.id === selectedElementId) || null,
     [canvasElements, selectedElementId]
   );
 
+  const ClothingStripItem = useMemo(() => React.memo(function({ item, onCanvas, onToggle }) {
+    return (
+      <Pressable style={[styles.clothingItem, onCanvas && styles.clothingItemActive]} onPress={() => onToggle(item)}>
+        <Image source={getImageSource(item.processed_image)} style={styles.clothingThumb} resizeMode="contain" />
+        {onCanvas && (<View style={styles.checkBadge}><Text style={styles.checkText}>✓</Text></View>)}
+        <Text style={styles.clothingName} numberOfLines={1}>{item.sub_tag || item.name || ''}</Text>
+      </Pressable>
+    );
+  }), []);
+
   return (
     <View style={styles.container}>
       {/* ===== Header ===== */}
       <View style={styles.header}>
-        <Pressable style={styles.headerBtn} onPress={() => router.back()}>
+        <Pressable style={styles.headerBtn} onPress={() => {
+          if (collabConnected) handleLeaveCollab();
+          router.back();
+        }}>
           <Text style={styles.headerBtnText}>← 返回</Text>
         </Pressable>
         <View style={styles.dateRow}>
@@ -652,7 +1214,12 @@ export default function OOTDLabScreen() {
         </Pressable>
       </View>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} scrollEnabled={selectedElementId === null}>
+      <Pressable style={{ flex: 1 }} onPress={selectedElementId && !eraserMode ? () => setSelectedElementId(null) : undefined}>
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
 
       {/* ===== Search & Category Chips ===== */}
       <View style={styles.searchSection}>
@@ -706,68 +1273,265 @@ export default function OOTDLabScreen() {
         )}
       </View>
 
-      {/* ===== Canvas ===== */}
-      <Pressable style={styles.canvasArea} onPress={() => setSelectedElementId(null)}>
-        {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#6366f1" />
-            <Text style={styles.loadingText}>加载衣柜数据...</Text>
-          </View>
-        ) : (
-          <OutfitCanvas
-            ref={canvasRef}
-            elements={canvasElements}
-            background={canvasBackground}
-            selectedId={selectedElementId}
-            onSelect={onSelectElement}
-            onUpdateElement={onUpdateElement}
-          />
-        )}
-      </Pressable>
+      {/* ===== Collab Toolbar ===== */}
+      <CollabToolbar
+        isConnected={collabConnected}
+        partnerNickname={partnerNickname}
+        roomCode={collabRoomCode}
+        voiceEnabled={voiceEnabled}
+        chatVisible={chatVisible}
+        onToggleVoice={handleToggleVoice}
+        onToggleChat={handleToggleChat}
+        onLeave={handleLeaveCollab}
+        onShareWardrobe={handleShareWardrobe}
+      />
 
-      {/* ===== Selected Element Controls ===== */}
-      {selectedElement && (
-        <View style={styles.selectedInfo}>
-          <Text style={styles.selectedLabel} numberOfLines={1}>
-            {selectedElement.name || (selectedElement.type === 'face' ? '人脸' : '未命名')}
-          </Text>
-          <View style={styles.selectedActions}>
-            <Pressable style={styles.zoomBtn} onPress={() => zoomElement(-SCALE_RANGE.step)}>
-              <Text style={styles.zoomBtnText}>−</Text>
-            </Pressable>
-            <Text style={styles.scaleLabel}>{(selectedElement.scale || 1).toFixed(1)}x {(selectedElement.rotation || 0)}°</Text>
-            <Pressable style={styles.zoomBtn} onPress={() => zoomElement(SCALE_RANGE.step)}>
-              <Text style={styles.zoomBtnText}>+</Text>
-            </Pressable>
-            <Pressable style={styles.delBtn} onPress={() => deleteElement(selectedElement.id)}>
-              <Text style={styles.delBtnText}>删除</Text>
-            </Pressable>
-          </View>
-          <View style={styles.rotationRow}>
-            <RotationSlider
-              rotation={selectedElement.rotation || 0}
-              onRotate={rotateElement}
-            />
-          </View>
-          <View style={styles.layerActions}>
-            <Pressable style={styles.layerBtn} onPress={moveLayerBottom}>
-              <Text style={styles.layerBtnText}>🔚</Text>
-            </Pressable>
-            <Pressable style={styles.layerBtn} onPress={moveLayerDown}>
-              <Text style={styles.layerBtnText}>↓</Text>
-            </Pressable>
-            <Pressable style={styles.layerBtn} onPress={moveLayerUp}>
-              <Text style={styles.layerBtnText}>↑</Text>
-            </Pressable>
-            <Pressable style={styles.layerBtn} onPress={moveLayerTop}>
-              <Text style={styles.layerBtnText}>🔝</Text>
-            </Pressable>
+      {/* ===== Canvas & Controls ===== */}
+      {Platform.OS === 'web' ? (
+        <View style={styles.canvasRow}>
+          <Pressable style={[styles.canvasArea, { paddingVertical: 0 }]} onPress={() => setSelectedElementId(null)}>
+            {loading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="large" color="#6366f1" />
+                <Text style={styles.loadingText}>加载衣柜数据...</Text>
+              </View>
+            ) : (
+              <OutfitCanvas
+                ref={canvasRef}
+                elements={canvasElements}
+                background={canvasBackground}
+                selectedId={selectedElementId}
+                onSelect={onSelectElement}
+                onUpdateElement={onUpdateElement}
+                eraserMode={eraserMode}
+                eraserSize={eraserSize}
+                eraserSoftness={eraserSoftness}
+                eraserStrength={eraserStrength}
+                onEraserResult={handleEraserResult}
+              />
+            )}
+          </Pressable>
+          <View style={styles.controlPanel}>
+            {selectedElement ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 }}>
+                  <Text style={styles.controlPanelTitle} numberOfLines={1}>
+                    {selectedElement.name || (selectedElement.type === 'face' ? '人脸' : '未命名')}
+                  </Text>
+                  <Pressable style={styles.delBtn} onPress={() => deleteElement(selectedElement.id)}>
+                    <Text style={styles.delBtnText}>删除</Text>
+                  </Pressable>
+                </View>
+                <View style={[styles.selectedActions, { flexWrap: 'wrap', justifyContent: 'center' }]}>
+                  <ScaleSlider
+                    value={selectedElement.scale || 1}
+                    min={SCALE_RANGE.min}
+                    max={SCALE_RANGE.max}
+                    step={SCALE_RANGE.step}
+                    onChange={handleScaleSliderChange}
+                  />
+                </View>
+                <View style={{ alignItems: 'center', marginBottom: 4 }}>
+                  <WebPositionSlider
+                    label="透明"
+                    value={selectedElement.opacity != null ? selectedElement.opacity : 1}
+                    min={0.1}
+                    max={1}
+                    onChange={handleOpacitySliderChange}
+                    displayValue={(selectedElement.opacity != null ? selectedElement.opacity : 1).toFixed(1)}
+                    decimal
+                  />
+                </View>
+                {eraserMode && (
+                  <View style={{ alignItems: 'center', marginBottom: 4, width: '100%' }}>
+                    <Text style={{ fontSize: 10, fontWeight: '600', color: '#DC2626', marginBottom: 4 }}>✏️ 橡皮擦</Text>
+                    <WebPositionSlider
+                      label="大小"
+                      value={eraserSize}
+                      min={5}
+                      max={80}
+                      onChange={setEraserSize}
+                      displayValue={`${eraserSize}px`}
+                      thumbColor="#EF4444"
+                      trackColor="#FEE2E2"
+                    />
+                    <WebPositionSlider
+                      label="柔和"
+                      value={eraserSoftness}
+                      min={0}
+                      max={1}
+                      onChange={(v) => setEraserSoftness(Math.round(v * 10) / 10)}
+                      displayValue={eraserSoftness.toFixed(1)}
+                      thumbColor="#EF4444"
+                      trackColor="#FEE2E2"
+                      decimal
+                    />
+                    <WebPositionSlider
+                      label="强度"
+                      value={eraserStrength}
+                      min={0.1}
+                      max={1}
+                      onChange={(v) => setEraserStrength(Math.round(v * 10) / 10)}
+                      displayValue={eraserStrength.toFixed(1)}
+                      thumbColor="#EF4444"
+                      trackColor="#FEE2E2"
+                      decimal
+                    />
+                    {eraserSnapshotsRef.current.length > 0 && (
+                      <Pressable
+                        style={[styles.delBtn, { backgroundColor: '#FEF3C7', marginTop: 4 }]}
+                        onPress={handleEraserUndo}
+                      >
+                        <Text style={[styles.delBtnText, { color: '#D97706' }]}>↩ 回退</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
+                <View style={styles.rotationRow}>
+                  <RotationSlider
+                    rotation={selectedElement.rotation || 0}
+                    onRotate={rotateElement}
+                  />
+                </View>
+                <View style={{ alignItems: 'center', marginBottom: 6 }}>
+                  <WebPositionSlider
+                    label="X 位置"
+                    value={Math.round(selectedElement.x || 0)}
+                    min={0}
+                    max={CANVAS_W}
+                    onChange={(x) => onUpdateElement(selectedElement.id, { x })}
+                  />
+                  <WebPositionSlider
+                    label="Y 位置"
+                    value={Math.round(selectedElement.y || 0)}
+                    min={0}
+                    max={CANVAS_H}
+                    onChange={(y) => onUpdateElement(selectedElement.id, { y })}
+                  />
+                </View>
+                <View style={[styles.layerActions, { justifyContent: 'center' }]}>
+                  <Pressable style={styles.layerBtn} onPress={moveLayerBottom}>
+                    <Text style={styles.layerBtnText}>🔚</Text>
+                  </Pressable>
+                  <Pressable style={styles.layerBtn} onPress={moveLayerDown}>
+                    <Text style={styles.layerBtnText}>↓</Text>
+                  </Pressable>
+                  <Pressable style={styles.layerBtn} onPress={moveLayerUp}>
+                    <Text style={styles.layerBtnText}>↑</Text>
+                  </Pressable>
+                  <Pressable style={styles.layerBtn} onPress={moveLayerTop}>
+                    <Text style={styles.layerBtnText}>🔝</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.controlPanelHint}>点击画布上的衣物{'\n'}进行编辑</Text>
+            )}
           </View>
         </View>
+      ) : (
+        <>
+          <Pressable style={styles.canvasArea} onPress={() => setSelectedElementId(null)}>
+            {loading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="large" color="#6366f1" />
+                <Text style={styles.loadingText}>加载衣柜数据...</Text>
+              </View>
+            ) : (
+              <OutfitCanvas
+                ref={canvasRef}
+                elements={canvasElements}
+                background={canvasBackground}
+                selectedId={selectedElementId}
+                onSelect={onSelectElement}
+                onUpdateElement={onUpdateElement}
+                eraserMode={eraserMode}
+                eraserSize={eraserSize}
+                eraserSoftness={eraserSoftness}
+                eraserStrength={eraserStrength}
+                onEraserResult={handleEraserResult}
+              />
+            )}
+          </Pressable>
+          {/* ===== Selected Element Controls (Mobile) ===== */}
+          {selectedElement && (
+            <View style={styles.selectedInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={styles.selectedLabel} numberOfLines={1}>
+                  {selectedElement.name || (selectedElement.type === 'face' ? '人脸' : '未命名')}
+                </Text>
+                <Pressable style={styles.delBtn} onPress={() => deleteElement(selectedElement.id)}>
+                  <Text style={styles.delBtnText}>删除</Text>
+                </Pressable>
+              </View>
+              <View style={[styles.selectedActions, { flexWrap: 'wrap', justifyContent: 'center' }]}>
+                <ScaleSlider
+                  value={selectedElement.scale || 1}
+                  min={SCALE_RANGE.min}
+                  max={SCALE_RANGE.max}
+                  step={SCALE_RANGE.step}
+                  onChange={handleScaleSliderChange}
+                />
+              </View>
+              <View style={[styles.selectedActions, { flexWrap: 'wrap', justifyContent: 'center' }]}>
+                <ScaleSlider
+                  label="透明"
+                  value={selectedElement.opacity != null ? selectedElement.opacity : 1}
+                  min={0.1}
+                  max={1}
+                  step={0.1}
+                  onChange={handleOpacitySliderChange}
+                  displayValue={(selectedElement.opacity != null ? selectedElement.opacity : 1).toFixed(1)}
+                />
+              </View>
+              {eraserMode && (
+                <View style={{ alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '600', color: '#DC2626', marginBottom: 4 }}>✏️ 橡皮擦</Text>
+                  <ScaleSlider label="大小" value={eraserSize} min={5} max={80} step={5} onChange={setEraserSize} displayValue={`${eraserSize}px`} />
+                  <ScaleSlider label="柔和" value={eraserSoftness} min={0} max={1} step={0.1} onChange={(v) => setEraserSoftness(Math.round(v * 10) / 10)} displayValue={eraserSoftness.toFixed(1)} />
+                  <ScaleSlider label="强度" value={eraserStrength} min={0.1} max={1} step={0.1} onChange={(v) => setEraserStrength(Math.round(v * 10) / 10)} displayValue={eraserStrength.toFixed(1)} />
+                  {eraserSnapshotsRef.current.length > 0 && (
+                    <Pressable style={[styles.delBtn, { backgroundColor: '#FEF3C7', marginTop: 4 }]} onPress={handleEraserUndo}>
+                      <Text style={[styles.delBtnText, { color: '#D97706' }]}>↩ 回退</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              <View style={styles.rotationRow}>
+                <RotationSlider
+                  rotation={selectedElement.rotation || 0}
+                  onRotate={rotateElement}
+                />
+              </View>
+              <View style={styles.layerActions}>
+                <Pressable style={styles.layerBtn} onPress={moveLayerBottom}>
+                  <Text style={styles.layerBtnText}>🔚</Text>
+                </Pressable>
+                <Pressable style={styles.layerBtn} onPress={moveLayerDown}>
+                  <Text style={styles.layerBtnText}>↓</Text>
+                </Pressable>
+                <Pressable style={styles.layerBtn} onPress={moveLayerUp}>
+                  <Text style={styles.layerBtnText}>↑</Text>
+                </Pressable>
+                <Pressable style={styles.layerBtn} onPress={moveLayerTop}>
+                  <Text style={styles.layerBtnText}>🔝</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </>
       )}
 
       {/* ===== Canvas Toolbar ===== */}
       <View style={styles.toolbar}>
+        <Pressable
+          style={[styles.toolBtn, eraserMode && { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderWidth: 1 }]}
+          onPress={() => setEraserMode((v) => !v)}
+        >
+          <Text style={[styles.toolBtnText, eraserMode && { color: '#DC2626' }]}>
+            {eraserMode ? '✏️ 橡皮擦(开)' : '✏️ 橡皮擦'}
+          </Text>
+        </Pressable>
         <Pressable style={styles.toolBtn} onPress={() => setShowBgSheet(true)}>
           <Text style={styles.toolBtnText}>🎨 背景</Text>
         </Pressable>
@@ -805,29 +1569,9 @@ export default function OOTDLabScreen() {
             keyExtractor={(item) => String(item.id)}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.clothingList}
-            renderItem={({ item }) => {
-              const onCanvas = isItemOnCanvas(item.id);
-              return (
-                <Pressable
-                  style={[styles.clothingItem, onCanvas && styles.clothingItemActive]}
-                  onPress={() => toggleItem(item)}
-                >
-                  <Image
-                    source={getImageSource(item.processed_image)}
-                    style={styles.clothingThumb}
-                    resizeMode="contain"
-                  />
-                  {onCanvas && (
-                    <View style={styles.checkBadge}>
-                      <Text style={styles.checkText}>✓</Text>
-                    </View>
-                  )}
-                  <Text style={styles.clothingName} numberOfLines={1}>
-                    {item.sub_tag || item.name || ''}
-                  </Text>
-                </Pressable>
-              );
-            }}
+            renderItem={({ item }) => (
+              <ClothingStripItem item={item} onCanvas={canvasWardrobeIds.has(item.id)} onToggle={toggleItem} />
+            )}
           />
         )}
       </View>
@@ -836,13 +1580,22 @@ export default function OOTDLabScreen() {
       <View style={styles.bottomBar}>
         <Pressable
           style={styles.collabBtn}
-          onPress={() => toast('该功能即将上线，敬请期待')}
+          onPress={() => setShowCollabInvite(true)}
         >
           <Text style={styles.collabBtnText}>👥 邀请好友共创</Text>
         </Pressable>
       </View>
 
+      {/* ===== Collab Chat Panel ===== */}
+      <CollabChat
+        messages={chatMessages}
+        onSend={handleSendChat}
+        partnerNickname={partnerNickname}
+        visible={chatVisible && collabConnected}
+      />
+
       </ScrollView>
+      </Pressable>
 
       {/* ===== Background Sheet Modal ===== */}
       <Modal visible={showBgSheet} transparent animationType="slide">
@@ -854,7 +1607,9 @@ export default function OOTDLabScreen() {
           <Pressable
             style={styles.sheetOption}
             onPress={() => {
-              setCanvasBackground({ type: 'color', value: '#FFFFFF' });
+              const bg = { type: 'color', value: '#FFFFFF' };
+              setCanvasBackground(bg);
+              emitBgChanged(bg);
               setShowBgSheet(false);
             }}
           >
@@ -909,15 +1664,17 @@ export default function OOTDLabScreen() {
         </Pressable>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>导入人脸</Text>
-          <Pressable
-            style={styles.sheetOption}
-            onPress={() => {
-              pendingFaceRef.current = 'camera';
-              setShowFaceSheet(false);
-            }}
-          >
-            <Text style={styles.sheetOptionText}>📷 拍照</Text>
-          </Pressable>
+          {Platform.OS !== 'web' && (
+            <Pressable
+              style={styles.sheetOption}
+              onPress={() => {
+                pendingFaceRef.current = 'camera';
+                setShowFaceSheet(false);
+              }}
+            >
+              <Text style={styles.sheetOptionText}>📷 拍照</Text>
+            </Pressable>
+          )}
           <Pressable
             style={styles.sheetOption}
             onPress={() => {
@@ -1018,6 +1775,21 @@ export default function OOTDLabScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ===== Collab Invite Modal ===== */}
+      <CollabInviteModal
+        visible={showCollabInvite}
+        onClose={() => setShowCollabInvite(false)}
+        onRoomReady={handleCollabRoomReady}
+      />
+
+      {/* ===== Share Wardrobe Sheet ===== */}
+      <ShareWardrobeSheet
+        visible={showShareWardrobe}
+        items={allItems}
+        onClose={() => setShowShareWardrobe(false)}
+        onShared={handleShared}
+      />
     </View>
   );
 }
@@ -1145,6 +1917,39 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     position: 'relative',
+  },
+  canvasRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  controlPanel: {
+    width: 200,
+    minHeight: CANVAS_H,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  controlPanelTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4338CA',
+    marginBottom: 10,
+    maxWidth: 180,
+    textAlign: 'center',
+  },
+  controlPanelHint: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   loadingBox: {
     width: CANVAS_W,
