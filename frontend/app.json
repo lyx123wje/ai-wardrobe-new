@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.aiwardrobe.app"
+      "bundleIdentifier": "com.aiwardrobe.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +25,8 @@
       },
       "package": "com.aiwardrobe.app",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
       ]
     },
     "plugins": [
@@ -46,7 +50,10 @@
     },
     "extra": {
       "apiBaseUrl": "http://10.29.137.80:5000",
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "47328a9d-81a5-412b-8afc-534587c67647"
+      }
     },
     "owner": "riyo_ale"
   }
