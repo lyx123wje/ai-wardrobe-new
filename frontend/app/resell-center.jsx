@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator, Alert, Modal,
+  ActivityIndicator, Alert, Modal, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchWardrobe, updateWardrobeItem } from '../src/api/wardrobe';
@@ -14,6 +14,7 @@ export default function ResellCenterScreen() {
   const [priceModal, setPriceModal] = useState(false);
   const [priceItem, setPriceItem] = useState(null);
   const [priceInput, setPriceInput] = useState('');
+  const [confirmModal, setConfirmModal] = useState(null); // { title, msg, onConfirm }
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -68,45 +69,50 @@ export default function ResellCenterScreen() {
     } catch { Alert.alert('标价失败'); }
   }, [priceItem, priceInput, loadItems]);
 
-  const handleMarkSold = useCallback(async (item) => {
+  const handleMarkSold = useCallback((item) => {
     const r = parseResell(item.notes || '');
     const price = r.price > 0 ? r.price : item.purchase_amount;
-    const today = new Date().toISOString().slice(0, 10);
-    Alert.alert('确认售出', `售价 ¥${price}？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '确认',
-        onPress: async () => {
-          const newNotes = buildResellNotes(item.notes || '', { price, status: '已售出', date: today });
-          try {
-            await updateWardrobeItem(item.id, { notes: newNotes });
-            loadItems();
-          } catch { Alert.alert('操作失败'); }
-        },
+    setConfirmModal({
+      title: '确认售出',
+      msg: `售价 ¥${price}？`,
+      onConfirm: async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const newNotes = buildResellNotes(item.notes || '', { price, status: '已售出', date: today });
+        try {
+          await updateWardrobeItem(item.id, { notes: newNotes });
+          loadItems();
+        } catch { Alert.alert('操作失败'); }
       },
-    ]);
+    });
   }, [loadItems]);
 
-  const handleMoveBack = useCallback(async (item) => {
-    Alert.alert('移回衣柜', `把「${item.sub_tag}」放回衣柜？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '移回',
-        onPress: async () => {
-          try {
-            await updateWardrobeItem(item.id, { is_unwanted: 0 });
-            loadItems();
-          } catch { Alert.alert('操作失败'); }
-        },
+  const handleMoveBack = useCallback((item) => {
+    setConfirmModal({
+      title: '移回衣柜',
+      msg: `把「${item.sub_tag}」放回衣柜？`,
+      onConfirm: async () => {
+        try {
+          await updateWardrobeItem(item.id, { is_unwanted: 0 });
+          loadItems();
+        } catch { Alert.alert('操作失败'); }
       },
-    ]);
+    });
+  }, [loadItems]);
+
+  const handleUndoSold = useCallback(async (item) => {
+    const r = parseResell(item.notes || '');
+    const newNotes = buildResellNotes(item.notes || '', { price: r.price, status: '', date: '' });
+    try {
+      await updateWardrobeItem(item.id, { notes: newNotes });
+      loadItems();
+    } catch { Alert.alert('操作失败'); }
   }, [loadItems]);
 
   return (
     <ImageBackground source={require('../assets/bg.png')} style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={styles.backText}>{'<'}</Text>
+        <Pressable onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()} style={styles.headerBtn}>
+          <Text style={styles.backText}>{Platform.OS === 'web' ? '← 主页' : '<'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>卖了还钱</Text>
         <View style={{ width: 40 }} />
@@ -162,6 +168,9 @@ export default function ResellCenterScreen() {
                   <Text style={styles.soldName} numberOfLines={1}>{item.sub_tag}</Text>
                   <Text style={styles.soldPrice}>¥{r.price}</Text>
                   <Text style={styles.soldDate}>{r.date || ''}</Text>
+                  <Pressable style={styles.undoBtn} onPress={() => handleUndoSold(item)}>
+                    <Text style={styles.undoBtnText}>撤销</Text>
+                  </Pressable>
                 </View>
               );
             })}
@@ -204,6 +213,26 @@ export default function ResellCenterScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!confirmModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{confirmModal?.title}</Text>
+            <Text style={styles.confirmMsg}>{confirmModal?.msg}</Text>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalCancel} onPress={() => setConfirmModal(null)}>
+                <Text style={styles.modalCancelText}>取消</Text>
+              </Pressable>
+              <Pressable style={styles.modalConfirm} onPress={async () => {
+                if (confirmModal?.onConfirm) await confirmModal.onConfirm();
+                setConfirmModal(null);
+              }}>
+                <Text style={styles.modalConfirmText}>确认</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -237,6 +266,11 @@ const styles = StyleSheet.create({
   soldName: { flex: 1, fontSize: 14, fontWeight: '500', color: '#334155' },
   soldPrice: { fontSize: 14, fontWeight: '700', color: '#16a34a', marginRight: 12 },
   soldDate: { fontSize: 12, color: '#94a3b8' },
+  undoBtn: {
+    backgroundColor: '#fef2f2', borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 5, marginLeft: 8,
+  },
+  undoBtnText: { fontSize: 11, fontWeight: '600', color: '#ef4444' },
   emptyBox: { alignItems: 'center', paddingVertical: 60 },
   emptyIcon: { fontSize: 48, marginBottom: 16 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: '#64748b', marginBottom: 8 },
@@ -245,6 +279,7 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 320 },
   modalTitle: { fontSize: 17, fontWeight: '700', color: '#1e293b', marginBottom: 4 },
   modalSub: { fontSize: 13, color: '#94a3b8', marginBottom: 20 },
+  confirmMsg: { fontSize: 15, color: '#334155', marginBottom: 20, textAlign: 'center' },
   priceInput: {
     borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 20, fontWeight: '700',

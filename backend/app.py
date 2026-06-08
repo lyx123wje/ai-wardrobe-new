@@ -116,11 +116,28 @@ def process_clothing():
         print("[衣服引擎] 正在抠图...")
         transparent_data = remove(img_data)
 
-        print("[衣服引擎] 正在分类...")
-        sub_tag, category, raw_index = predict_category(transparent_data)
+        # Compress: resize large images and convert to JPEG to reduce size
+        from PIL import Image as PILImage
+        buf = io.BytesIO(transparent_data)
+        img = PILImage.open(buf).convert('RGBA')
+        # Resize if wider than 400px to keep response size down
+        max_w = 400
+        if img.width > max_w:
+            ratio = max_w / img.width
+            new_h = int(img.height * ratio)
+            img = img.resize((max_w, new_h), PILImage.LANCZOS)
+        # Convert RGBA to white-bg JPEG for size reduction
+        bg = PILImage.new('RGB', img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[3])  # use alpha as mask
+        jpg_buf = io.BytesIO()
+        bg.save(jpg_buf, 'JPEG', quality=75)
+        compressed_data = jpg_buf.getvalue()
 
-        base64_encoded = base64.b64encode(transparent_data).decode('utf-8')
-        base64_str = f"data:image/png;base64,{base64_encoded}"
+        print("[衣服引擎] 正在分类...")
+        sub_tag, category, raw_index = predict_category(compressed_data)
+
+        base64_encoded = base64.b64encode(compressed_data).decode('utf-8')
+        base64_str = f"data:image/jpeg;base64,{base64_encoded}"
 
         return jsonify({
             "status": "success",
@@ -251,11 +268,12 @@ def persona_think_api():
         persona_id = data.get("persona_id", "")
         user_problem = data.get("user_problem", "")
         clothing_tag = data.get("clothing_tag", "")
+        history = data.get("history", [])
 
         if not persona_id or not user_problem:
             return jsonify({"status": "error", "message": "缺少 persona_id 或 user_problem"}), 400
 
-        result = persona_think(persona_id, user_problem, clothing_tag)
+        result = persona_think(persona_id, user_problem, clothing_tag, history)
         result["status"] = "success"
         return jsonify(result)
 
@@ -461,6 +479,7 @@ import database as db
 # ── Wardrobe ──
 
 @app.route('/api/wardrobe', methods=['POST'])
+@require_auth
 def api_create_wardrobe():
     try:
         data = request.get_json()
@@ -482,6 +501,7 @@ def api_create_wardrobe():
             purchase_amount=data.get("purchase_amount", 0.0),
             receipt_image=data.get("receipt_image"),
             notes=data.get("notes", ""),
+            user_id=request.user_id,
         )
         return jsonify({"status": "success", "item": item})
     except Exception as e:
@@ -490,6 +510,7 @@ def api_create_wardrobe():
 
 
 @app.route('/api/wardrobe', methods=['GET'])
+@require_auth
 def api_list_wardrobe():
     try:
         category = request.args.get("category")
@@ -504,6 +525,7 @@ def api_list_wardrobe():
             color=color,
             is_dirty=is_dirty,
             is_unwanted=is_unwanted,
+            user_id=request.user_id,
         )
         return jsonify({"status": "success", "items": items, "count": len(items)})
     except Exception as e:
@@ -512,9 +534,10 @@ def api_list_wardrobe():
 
 
 @app.route('/api/wardrobe/<int:item_id>', methods=['GET'])
+@require_auth
 def api_get_wardrobe(item_id):
     try:
-        item = db.get_wardrobe_item(item_id)
+        item = db.get_wardrobe_item(item_id, request.user_id)
         if not item:
             return jsonify({"status": "error", "message": "衣物不存在"}), 404
         return jsonify({"status": "success", "item": item})
@@ -524,12 +547,13 @@ def api_get_wardrobe(item_id):
 
 
 @app.route('/api/wardrobe/<int:item_id>', methods=['PUT'])
+@require_auth
 def api_update_wardrobe(item_id):
     try:
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
-        item = db.update_wardrobe_item(item_id, **data)
+        item = db.update_wardrobe_item(item_id, request.user_id, **data)
         if not item:
             return jsonify({"status": "error", "message": "衣物不存在或无有效更新字段"}), 404
         return jsonify({"status": "success", "item": item})
@@ -539,9 +563,10 @@ def api_update_wardrobe(item_id):
 
 
 @app.route('/api/wardrobe/<int:item_id>', methods=['DELETE'])
+@require_auth
 def api_delete_wardrobe(item_id):
     try:
-        db.delete_wardrobe_item(item_id)
+        db.delete_wardrobe_item(item_id, request.user_id)
         return jsonify({"status": "success", "message": "衣物已删除"})
     except Exception as e:
         print(f"[错误] 删除衣物出错: {e}")
@@ -549,12 +574,13 @@ def api_delete_wardrobe(item_id):
 
 
 @app.route('/api/wardrobe/batch', methods=['POST'])
+@require_auth
 def api_batch_create():
     try:
         data = request.get_json()
         if not data or "items" not in data:
             return jsonify({"status": "error", "message": "请提供 items 数组"}), 400
-        created_ids = db.batch_create_items(data["items"])
+        created_ids = db.batch_create_items(data["items"], request.user_id)
         return jsonify({"status": "success", "created_ids": created_ids, "count": len(created_ids)})
     except Exception as e:
         print(f"[错误] 批量创建衣物出错: {e}")
@@ -562,9 +588,10 @@ def api_batch_create():
 
 
 @app.route('/api/wardrobe/stats', methods=['GET'])
+@require_auth
 def api_wardrobe_stats():
     try:
-        stats = db.get_wardrobe_stats()
+        stats = db.get_wardrobe_stats(request.user_id)
         return jsonify({"status": "success", "stats": stats})
     except Exception as e:
         print(f"[错误] 统计出错: {e}")
@@ -572,18 +599,32 @@ def api_wardrobe_stats():
 
 
 @app.route('/api/wardrobe/mark_all_clean', methods=['POST'])
+@require_auth
 def api_mark_all_clean():
     try:
-        db.mark_all_clean()
+        db.mark_all_clean(request.user_id)
         return jsonify({"status": "success", "message": "全部衣物已标记为干净"})
     except Exception as e:
         print(f"[错误] 标记干净出错: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/api/wardrobe/shared', methods=['GET'])
+@require_auth
+def api_get_shared_wardrobe():
+    try:
+        owner_id = request.args.get('owner_id')
+        shares = db.get_shared_wardrobe_items(request.user_id, owner_id)
+        return jsonify({"status": "success", "shared": shares})
+    except Exception as e:
+        print(f"[错误] 获取共享衣柜出错: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ── Outfits ──
 
 @app.route('/api/outfits', methods=['POST'])
+@require_auth
 def api_create_outfit():
     try:
         data = request.get_json()
@@ -599,7 +640,7 @@ def api_create_outfit():
         if not wardrobe_item_ids:
             return jsonify({"status": "error", "message": "缺少 wardrobe_item_ids"}), 400
 
-        outfit = db.create_outfit(log_date, note, wardrobe_item_ids)
+        outfit = db.create_outfit(log_date, note, wardrobe_item_ids, request.user_id)
         return jsonify({"status": "success", "outfit": outfit})
     except Exception as e:
         print(f"[错误] 创建穿搭出错: {e}")
@@ -607,11 +648,12 @@ def api_create_outfit():
 
 
 @app.route('/api/outfits', methods=['GET'])
+@require_auth
 def api_list_outfits():
     try:
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
-        outfits = db.list_outfits(start_date=start_date, end_date=end_date)
+        outfits = db.list_outfits(start_date=start_date, end_date=end_date, user_id=request.user_id)
         return jsonify({"status": "success", "outfits": outfits, "count": len(outfits)})
     except Exception as e:
         print(f"[错误] 列表穿搭出错: {e}")
@@ -619,9 +661,10 @@ def api_list_outfits():
 
 
 @app.route('/api/outfits/date/<date_str>', methods=['GET'])
+@require_auth
 def api_get_outfit_by_date(date_str):
     try:
-        outfit = db.get_outfit_by_date(date_str)
+        outfit = db.get_outfit_by_date(date_str, request.user_id)
         if not outfit:
             return jsonify({"status": "success", "outfit": None})
         return jsonify({"status": "success", "outfit": outfit})
@@ -631,9 +674,12 @@ def api_get_outfit_by_date(date_str):
 
 
 @app.route('/api/outfits/<int:outfit_id>', methods=['DELETE'])
+@require_auth
 def api_delete_outfit(outfit_id):
     try:
-        db.delete_outfit(outfit_id)
+        ok = db.delete_outfit(outfit_id, request.user_id)
+        if not ok:
+            return jsonify({"status": "error", "message": "穿搭不存在或无权删除"}), 404
         return jsonify({"status": "success", "message": "穿搭日志已删除"})
     except Exception as e:
         print(f"[错误] 删除穿搭出错: {e}")
@@ -643,6 +689,7 @@ def api_delete_outfit(outfit_id):
 # ========== 杂物 (Misc Items) CRUD ==========
 
 @app.route('/api/misc', methods=['POST'])
+@require_auth
 def api_create_misc():
     try:
         data = request.get_json()
@@ -658,6 +705,7 @@ def api_create_misc():
             image=data.get("image"),
             location=data.get("location", ""),
             notes=data.get("notes", ""),
+            user_id=request.user_id,
         )
         return jsonify({"status": "success", "item": item})
     except Exception as e:
@@ -666,10 +714,11 @@ def api_create_misc():
 
 
 @app.route('/api/misc', methods=['GET'])
+@require_auth
 def api_list_misc():
     try:
         search = request.args.get("search")
-        items = db.list_misc_items(search=search)
+        items = db.list_misc_items(search=search, user_id=request.user_id)
         return jsonify({"status": "success", "items": items, "count": len(items)})
     except Exception as e:
         print(f"[错误] 列表杂物出错: {e}")
@@ -677,12 +726,13 @@ def api_list_misc():
 
 
 @app.route('/api/misc/<int:item_id>', methods=['PUT'])
+@require_auth
 def api_update_misc(item_id):
     try:
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "请提供 JSON 数据"}), 400
-        item = db.update_misc_item(item_id, **data)
+        item = db.update_misc_item(item_id, request.user_id, **data)
         if not item:
             return jsonify({"status": "error", "message": "杂物不存在或无有效更新字段"}), 404
         return jsonify({"status": "success", "item": item})
@@ -692,9 +742,10 @@ def api_update_misc(item_id):
 
 
 @app.route('/api/misc/<int:item_id>', methods=['DELETE'])
+@require_auth
 def api_delete_misc(item_id):
     try:
-        db.delete_misc_item(item_id)
+        db.delete_misc_item(item_id, request.user_id)
         return jsonify({"status": "success", "message": "杂物已删除"})
     except Exception as e:
         print(f"[错误] 删除杂物出错: {e}")
@@ -704,6 +755,7 @@ def api_delete_misc(item_id):
 # ========== 日记 API ==========
 
 @app.route('/api/diary', methods=['POST'])
+@require_auth
 def api_create_diary():
     try:
         data = request.get_json()
@@ -711,39 +763,42 @@ def api_create_diary():
         content = data.get("content", "")
         if not content:
             return jsonify({"status": "error", "message": "缺少 content"}), 400
-        entry = db.create_diary_entry(log_date, content)
+        entry = db.create_diary_entry(log_date, content, request.user_id)
         return jsonify({"status": "success", "entry": entry})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route('/api/diary', methods=['GET'])
+@require_auth
 def api_list_diary():
     try:
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
-        entries = db.list_diary_entries(start_date, end_date)
+        entries = db.list_diary_entries(start_date, end_date, request.user_id)
         return jsonify({"status": "success", "entries": entries, "count": len(entries)})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route('/api/diary/<int:entry_id>', methods=['PUT'])
+@require_auth
 def api_update_diary(entry_id):
     try:
         data = request.get_json()
         if not data or "content" not in data:
             return jsonify({"status": "error", "message": "缺少 content"}), 400
-        db.update_diary_entry(entry_id, data["content"])
+        db.update_diary_entry(entry_id, data["content"], request.user_id)
         return jsonify({"status": "success", "message": "日记已更新"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route('/api/diary/<int:entry_id>', methods=['DELETE'])
+@require_auth
 def api_delete_diary(entry_id):
     try:
-        db.delete_diary_entry(entry_id)
+        db.delete_diary_entry(entry_id, request.user_id)
         return jsonify({"status": "success", "message": "日记已删除"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -752,6 +807,7 @@ def api_delete_diary(entry_id):
 # ========== 衣柜智能管家 ==========
 
 @app.route('/api/wardrobe/ask', methods=['POST'])
+@require_auth
 def api_wardrobe_ask():
     try:
         data = request.get_json()
@@ -762,12 +818,13 @@ def api_wardrobe_ask():
         if not question:
             return jsonify({"status": "error", "message": "问题不能为空"}), 400
 
-        # 拉取全部衣物和杂物数据
-        wardrobe_items = db.list_wardrobe_items()
-        misc_items = db.list_misc_items()
+        # 拉取当前用户的衣物和杂物数据
+        wardrobe_items = db.list_wardrobe_items(user_id=request.user_id)
+        misc_items = db.list_misc_items(user_id=request.user_id)
+        history = data.get("history", [])
 
         # 调用 AI 推理
-        result = ask_wardrobe_butler(question, wardrobe_items, misc_items)
+        result = ask_wardrobe_butler(question, wardrobe_items, misc_items, history)
 
         # 执行 AI 返回的 actions
         executed_actions = []
@@ -778,45 +835,45 @@ def api_wardrobe_ask():
                     misc_id = action.get("misc_id")
                     new_location = action.get("new_location", "")
                     if misc_id:
-                        db.update_misc_item(misc_id, location=new_location)
+                        db.update_misc_item(misc_id, request.user_id, location=new_location)
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "update_wardrobe_unwanted":
                     item_id = action.get("item_id")
                     if item_id:
-                        db.update_wardrobe_item(item_id, is_unwanted=1)
+                        db.update_wardrobe_item(item_id, request.user_id, is_unwanted=1)
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "update_wardrobe_dirty":
                     item_id = action.get("item_id")
                     if item_id:
-                        db.update_wardrobe_item(item_id, is_dirty=1)
+                        db.update_wardrobe_item(item_id, request.user_id, is_dirty=1)
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "update_wardrobe_clean":
                     item_id = action.get("item_id")
                     if item_id:
-                        db.update_wardrobe_item(item_id, is_dirty=0)
+                        db.update_wardrobe_item(item_id, request.user_id, is_dirty=0)
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "update_wardrobe_keep":
                     item_id = action.get("item_id")
                     if item_id:
-                        db.update_wardrobe_item(item_id, is_unwanted=0)
+                        db.update_wardrobe_item(item_id, request.user_id, is_unwanted=0)
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "create_diary":
                     content = action.get("content", "")
                     log_date = action.get("date", "")
                     if content:
-                        entry = db.create_diary_entry(log_date, content)
+                        entry = db.create_diary_entry(log_date, content, request.user_id)
                         action["diary_id"] = entry["id"]
                         action["status"] = "done"
                         executed_actions.append(action)
                 elif action_type == "search_diary":
                     keyword = action.get("keyword", "")
                     if keyword:
-                        entries = db.search_diary_entries(keyword)
+                        entries = db.search_diary_entries(keyword, request.user_id)
                         action["results"] = entries
                         action["count"] = len(entries)
                         action["status"] = "done"
@@ -824,7 +881,7 @@ def api_wardrobe_ask():
                 elif action_type == "delete_diary":
                     diary_id = action.get("diary_id")
                     if diary_id:
-                        db.delete_diary_entry(diary_id)
+                        db.delete_diary_entry(diary_id, request.user_id)
                         action["status"] = "done"
                         executed_actions.append(action)
             except Exception as e:
@@ -998,10 +1055,27 @@ def api_collab_share_wardrobe():
         data = request.get_json()
         if not data or "item_ids" not in data:
             return jsonify({"status": "error", "message": "缺少 item_ids"}), 400
-        collab_manager.share_wardrobe(request.user_id, data["item_ids"])
+        room_code = data.get("room_code", "")
+        if not room_code:
+            return jsonify({"status": "error", "message": "缺少 room_code"}), 400
+        result = collab_manager.share_wardrobe(room_code, request.user_id, data["item_ids"])
+        if not result:
+            return jsonify({"status": "error", "message": "分享失败，房间不存在或对方未加入"}), 404
         return jsonify({"status": "success", "shared_count": len(data["item_ids"])})
     except Exception as e:
         print(f"[错误] 共享衣柜出错: {e}")
+        import traceback; traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/collab/shared-wardrobe/<room_code>', methods=['DELETE'])
+@require_auth
+def api_collab_clear_shared_wardrobe(room_code):
+    try:
+        db.delete_shared_wardrobe_for_room(room_code)
+        return jsonify({"status": "success", "message": "共享记录已清除"})
+    except Exception as e:
+        print(f"[错误] 清除共享衣柜出错: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -1174,10 +1248,14 @@ def handle_share_wardrobe(data):
     room_code = data.get('room_code')
     if not room_code:
         return
+    from_user_id = data.get('from_user_id')
+    item_ids = data.get('item_ids', [])
+    # Persist to DB
+    collab_manager.share_wardrobe(room_code, from_user_id, item_ids)
     emit('wardrobe_shared', {
-        'from_user_id': data.get('from_user_id'),
+        'from_user_id': from_user_id,
         'from_nickname': data.get('from_nickname'),
-        'item_ids': data.get('item_ids'),
+        'item_ids': item_ids,
     }, room=room_code, include_self=False)
 
 

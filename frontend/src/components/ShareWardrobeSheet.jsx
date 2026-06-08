@@ -21,7 +21,7 @@ function getImageSource(raw) {
   return { uri: `data:image/png;base64,${raw}` };
 }
 
-export default function ShareWardrobeSheet({ visible, items, onClose, onShared }) {
+export default function ShareWardrobeSheet({ visible, items, onClose, onShared, roomCode }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [loading, setLoading] = useState(false);
 
@@ -43,7 +43,7 @@ export default function ShareWardrobeSheet({ visible, items, onClose, onShared }
     try {
       const token = await getToken();
       const user = await getUser();
-      await shareWardrobe(user.user_id, [...selectedIds], token);
+      await shareWardrobe(user.user_id, [...selectedIds], token, roomCode);
       onShared([...selectedIds]);
     } catch (e) {
       console.error('Share wardrobe failed:', e);

@@ -100,7 +100,32 @@ def remove_member_sid(room_code, user_id):
 
 # ── Wardrobe Sharing ──
 
-def share_wardrobe(user_id, item_ids):
+def share_wardrobe(room_code, user_id, item_ids):
+    """Persist shared wardrobe to DB: saves which items owner shares with partner in the room."""
+    print(f"[collab] share_wardrobe called: room={room_code}, user={user_id}, items={len(item_ids)}")
+    room = rooms.get(room_code)
+    if not room:
+        print(f"[collab] share_wardrobe FAILED: room {room_code} not found in memory (existing rooms: {list(rooms.keys())})")
+        return False
+    # Find the partner in this room
+    partner_id = None
+    for uid in room.get('members', {}):
+        if uid != user_id:
+            partner_id = uid
+            break
+    if not partner_id:
+        print(f"[collab] share_wardrobe FAILED: no partner found in room members: {list(room.get('members', {}).keys())}")
+        return False
+    # Persist to database
+    try:
+        import database as db
+        db.save_shared_wardrobe(room_code, user_id, partner_id, item_ids)
+        print(f"[collab] share_wardrobe persisted: owner={user_id} -> partner={partner_id}, items={item_ids}")
+    except Exception as e:
+        print(f"[collab] share_wardrobe DB ERROR: {e}")
+        import traceback; traceback.print_exc()
+        return False
+    # Also keep in-memory reference for backward compatibility
     shared_wardrobes[user_id] = item_ids
     return True
 

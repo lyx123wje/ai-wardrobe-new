@@ -56,19 +56,12 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
     }
   }, []);
 
-  // 组件挂载时加载历史
+  // 每次打开都是新对话，关闭时清空
   useEffect(() => {
     if (visible) {
-      loadHistory();
+      setMessages([]);
     }
-  }, [visible, loadHistory]);
-
-  // 消息变化时保存
-  useEffect(() => {
-    if (messages.length > 0) {
-      saveHistory(messages);
-    }
-  }, [messages, saveHistory]);
+  }, [visible]);
 
   function addMessage(type, content, extra = {}) {
     const newMessage = { id: Date.now(), type, content, ...extra };
@@ -88,8 +81,17 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
     setInputText('');
     setLoading(true);
 
+    // 构建对话历史（最近5轮）
+    const history = messages
+      .filter(m => m.content)
+      .slice(-10)  // exclude the just-added user message
+      .map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.content,
+      }));
+
     try {
-      const res = await askWardrobe(question);
+      const res = await askWardrobe(question, history);
       const data = res.data;
 
       // 添加 AI 回复

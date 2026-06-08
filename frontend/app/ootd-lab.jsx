@@ -19,7 +19,7 @@ import { format, subDays } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
 import { captureRef } from 'react-native-view-shot';
 import OutfitCanvas, { CANVAS_W, CANVAS_H } from '../src/components/OutfitCanvas';
-import { fetchWardrobe, createWardrobeItem } from '../src/api/wardrobe';
+import { fetchWardrobe, createWardrobeItem, fetchSharedWardrobe } from '../src/api/wardrobe';
 import { createOutfit, fetchOutfitByDate } from '../src/api/outfits';
 import { processPortraitBase64 } from '../src/api/portraits';
 import {
@@ -304,6 +304,7 @@ export default function OOTDLabScreen() {
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [wardrobeLoaded, setWardrobeLoaded] = useState(false);
+  const [sharedGroups, setSharedGroups] = useState([]);
 
   // Modal states
   const [showBgSheet, setShowBgSheet] = useState(false);
@@ -327,6 +328,7 @@ export default function OOTDLabScreen() {
 
   const canvasRef = useRef(null);
   const searchInputRef = useRef(null);
+  const [interacting, setInteracting] = useState(false);
   const pendingFaceRef = useRef(null); // 'camera' | 'gallery' | null
 
   // ── Collab state ──
@@ -371,6 +373,23 @@ export default function OOTDLabScreen() {
       setWardrobeLoaded(true);
     }
   }, []);
+
+  // Load shared wardrobe items from current partner
+  const loadSharedWardrobe = useCallback(async () => {
+    if (!partnerUserId) {
+      setSharedGroups([]);
+      return;
+    }
+    try {
+      const res = await fetchSharedWardrobe(partnerUserId);
+      const shared = res.data?.shared;
+      console.log('[共享衣柜] lab 加载 partner:', partnerUserId?.slice(0, 8), '→', shared?.length || 0, '组');
+      setSharedGroups(shared || []);
+    } catch (err) {
+      console.error('[共享衣柜] lab 加载失败:', err?.response?.status, err?.response?.data || err.message);
+      setSharedGroups([]);
+    }
+  }, [partnerUserId]);
 
   // Load outfit for selected date
   const loadOutfit = useCallback(async (date) => {
@@ -431,6 +450,13 @@ export default function OOTDLabScreen() {
   useEffect(() => {
     loadWardrobe();
   }, []);
+
+  // Load shared wardrobe when partner is known
+  useEffect(() => {
+    if (partnerUserId) {
+      loadSharedWardrobe();
+    }
+  }, [partnerUserId, loadSharedWardrobe]);
 
   useEffect(() => {
     if (wardrobeLoaded) {
@@ -580,6 +606,7 @@ export default function OOTDLabScreen() {
 
     const handleWardrobeShared = (data) => {
       console.log('[Collab] Wardrobe shared by', data.from_nickname, data.item_ids);
+      loadSharedWardrobe();
     };
 
     // WebRTC handlers
@@ -684,6 +711,7 @@ export default function OOTDLabScreen() {
     setVoiceEnabled(false);
     setChatVisible(false);
     setChatMessages([]);
+    setSharedGroups([]);
   }, []);
 
   const handleToggleVoice = useCallback(async () => {
@@ -1088,8 +1116,10 @@ export default function OOTDLabScreen() {
     setSaving(true);
     try {
       const wardrobeIds = clothingItems.map((el) => el.wardrobeId);
+      // Strip base64 image data from canvas elements to keep note small
+      const lightElements = canvasElements.map(({ image, src, ...rest }) => rest);
       const noteData = JSON.stringify({
-        canvasElements,
+        canvasElements: lightElements,
         background: canvasBackground,
       });
       await createOutfit({
@@ -1100,11 +1130,16 @@ export default function OOTDLabScreen() {
       let processedImage = '';
       try {
         if (canvasRef.current) {
-          const dataUri = await captureRef(canvasRef.current, { format: 'png', quality: 0.8, result: 'data-uri' });
-          processedImage = dataUri;
+          processedImage = await captureRef(canvasRef.current, { format: 'png', quality: 0.8, result: 'data-uri' });
         }
-      } catch {
-        // Screenshot failed
+      } catch {}
+      // Web fallback: use html2canvas if captureRef fails
+      if (!processedImage && Platform.OS === 'web' && canvasRef.current) {
+        try {
+          const { default: html2canvas } = await import('html2canvas');
+          const c = await html2canvas(canvasRef.current, { backgroundColor: '#FFFFFF' });
+          processedImage = c.toDataURL('image/png');
+        } catch {}
       }
       await createWardrobeItem({
         sub_tag: saveModalName || '未命名搭配',
@@ -1133,11 +1168,29 @@ export default function OOTDLabScreen() {
         return;
       }
       if (Platform.OS === 'web') {
-        const uri = await captureRef(canvasRef.current, { format: 'png', quality: 1.0 });
-        const link = document.createElement('a');
-        link.download = `ai-wardrobe-${selectedDate}.png`;
-        link.href = uri;
-        link.click();
+        let uri;
+        try {
+          uri = await captureRef(canvasRef.current, { format: 'png', quality: 1.0 });
+        } catch (captureErr) {
+          console.warn('captureRef failed, trying html2canvas fallback:', captureErr);
+          // Fallback: try to find a canvas element or screenshot the DOM
+          const node = canvasRef.current;
+          if (node) {
+            const { default: html2canvas } = await import('html2canvas');
+            const c = await html2canvas(node, { backgroundColor: null });
+            uri = c.toDataURL('image/png');
+          }
+        }
+        if (!uri) {
+          Alert.alert('导出失败', '无法生成图片');
+          return;
+        }
+        const a = document.createElement('a');
+        a.download = `ai-wardrobe-${selectedDate}.png`;
+        a.href = uri;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         toast('已下载到本地');
         return;
       }
@@ -1152,7 +1205,7 @@ export default function OOTDLabScreen() {
       toast('已保存到相册');
     } catch (e) {
       console.error('Export error:', e);
-      Alert.alert('导出失败', '保存到相册时出错，请重试');
+      Alert.alert('导出失败', e?.message || '保存到相册时出错，请重试');
     }
   }, [selectedDate]);
 
@@ -1196,9 +1249,10 @@ export default function OOTDLabScreen() {
       <View style={styles.header}>
         <Pressable style={styles.headerBtn} onPress={() => {
           if (collabConnected) handleLeaveCollab();
-          router.back();
+          if (Platform.OS === 'web') router.replace('/');
+          else router.back();
         }}>
-          <Text style={styles.headerBtnText}>← 返回</Text>
+          <Text style={styles.headerBtnText}>{Platform.OS === 'web' ? '← 主页' : '← 返回'}</Text>
         </Pressable>
         <View style={styles.dateRow}>
           <Pressable onPress={goPrevDay} style={styles.arrowBtn}>
@@ -1225,6 +1279,7 @@ export default function OOTDLabScreen() {
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={!interacting}
         >
 
       {/* ===== Search & Category Chips ===== */}
@@ -1314,6 +1369,8 @@ export default function OOTDLabScreen() {
                 eraserSoftness={eraserSoftness}
                 eraserStrength={eraserStrength}
                 onEraserResult={handleEraserResult}
+                onInteractStart={() => setInteracting(true)}
+                onInteractEnd={() => setInteracting(false)}
               />
             )}
           </Pressable>
@@ -1456,6 +1513,8 @@ export default function OOTDLabScreen() {
                 eraserSoftness={eraserSoftness}
                 eraserStrength={eraserStrength}
                 onEraserResult={handleEraserResult}
+                onInteractStart={() => setInteracting(true)}
+                onInteractEnd={() => setInteracting(false)}
               />
             )}
           </Pressable>
@@ -1530,14 +1589,16 @@ export default function OOTDLabScreen() {
 
       {/* ===== Canvas Toolbar ===== */}
       <View style={styles.toolbar}>
-        <Pressable
-          style={[styles.toolBtn, eraserMode && { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderWidth: 1 }]}
-          onPress={() => setEraserMode((v) => !v)}
-        >
-          <Text style={[styles.toolBtnText, eraserMode && { color: '#DC2626' }]}>
-            {eraserMode ? '✏️ 橡皮擦(开)' : '✏️ 橡皮擦'}
-          </Text>
-        </Pressable>
+        {Platform.OS === 'web' && (
+          <Pressable
+            style={[styles.toolBtn, eraserMode && { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderWidth: 1 }]}
+            onPress={() => setEraserMode((v) => !v)}
+          >
+            <Text style={[styles.toolBtnText, eraserMode && { color: '#DC2626' }]}>
+              {eraserMode ? '✏️ 橡皮擦(开)' : '✏️ 橡皮擦'}
+            </Text>
+          </Pressable>
+        )}
         <Pressable style={styles.toolBtn} onPress={() => setShowBgSheet(true)}>
           <Text style={styles.toolBtnText}>🎨 背景</Text>
         </Pressable>
@@ -1581,6 +1642,41 @@ export default function OOTDLabScreen() {
           />
         )}
       </View>
+
+      {/* ===== Shared Wardrobe Section ===== */}
+      {sharedGroups.length > 0 && (
+        <View style={labSharedStyles.container}>
+          <Text style={labSharedStyles.title}>🤝 好友分享的衣服</Text>
+          {sharedGroups.map((group) => (
+            <View key={group.owner_id} style={labSharedStyles.group}>
+              <Text style={labSharedStyles.ownerLabel}>来自 {group.owner_nickname}</Text>
+              <View style={labSharedStyles.grid}>
+                {group.items.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={labSharedStyles.card}
+                    onPress={() => toggleItem(item)}
+                  >
+                    <Image
+                      source={getImageSource(item.processed_image)}
+                      style={labSharedStyles.cardImage}
+                      resizeMode="contain"
+                    />
+                    <Text style={labSharedStyles.cardTag} numberOfLines={1}>
+                      {item.sub_tag || item.category || ''}
+                    </Text>
+                    {canvasWardrobeIds.has(item.id) && (
+                      <View style={labSharedStyles.onCanvasBadge}>
+                        <Text style={labSharedStyles.badgeText}>已上画布</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* ===== Friend Collab Button ===== */}
       <View style={styles.bottomBar}>
@@ -1795,6 +1891,7 @@ export default function OOTDLabScreen() {
         items={allItems}
         onClose={() => setShowShareWardrobe(false)}
         onShared={handleShared}
+        roomCode={collabRoomCode}
       />
     </View>
   );
@@ -2382,5 +2479,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+});
+
+// Shared wardrobe styles for OOTD Lab
+const labSharedStyles = StyleSheet.create({
+  container: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 6,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#C2410C',
+    marginBottom: 8,
+  },
+  group: {
+    marginBottom: 8,
+  },
+  ownerLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9A3412',
+    marginBottom: 6,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  card: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    alignItems: 'center',
+  },
+  cardImage: {
+    width: '100%',
+    height: 100,
+    borderRadius: 6,
+    backgroundColor: '#F9FAFB',
+  },
+  cardTag: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#374151',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  onCanvasBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#10B981',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  badgeText: {
+    fontSize: 8,
+    color: '#fff',
+    fontWeight: '700',
   },
 });

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable, Animated,
-  FlatList, ScrollView, ActivityIndicator, Alert, Modal, Image,
+  FlatList, ScrollView, ActivityIndicator, Alert, Modal, Image, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -472,8 +472,8 @@ export default function WardrobeScreen() {
           </>
         ) : (
           <>
-            <Pressable style={styles.backBtn} onPress={() => router.back()}>
-              <Text style={styles.backBtnText}>← 返回</Text>
+            <Pressable style={styles.backBtn} onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()}>
+              <Text style={styles.backBtnText}>{Platform.OS === 'web' ? '← 主页' : '← 返回'}</Text>
             </Pressable>
             <Text style={styles.headerTitle}>{isMisc ? '杂物' : '衣柜'}</Text>
             <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>

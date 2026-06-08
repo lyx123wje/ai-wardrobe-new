@@ -19,12 +19,13 @@ export function personaThink(personaId, userProblem, clothingTag = '') {
   });
 }
 
-// 思维训练室用 — 1v1 倾诉（不带穿搭标签）
-export function personaRoomThink(personaId, userProblem) {
+// 思维训练室用 — 1v1 倾诉（不带穿搭标签，支持对话历史）
+export function personaRoomThink(personaId, userProblem, history = []) {
   return api.post('/persona_think', {
     persona_id: personaId,
     user_problem: userProblem,
     clothing_tag: '',
+    history,
   });
 }
 

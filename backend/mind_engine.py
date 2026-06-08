@@ -142,12 +142,13 @@ def call_llm(system_prompt, user_message):
         }
 
 
-def persona_think(persona_id, user_problem, clothing_tag):
+def persona_think(persona_id, user_problem, clothing_tag, history=None):
     """
     完整角色推理流程：
     1. 根据 persona_id 查找对应角色人格
     2. 构建该角色的 System Prompt（穿搭模式或思维训练模式）
-    3. 调用 DeepSeek LLM 获取角色化回复
+    3. 如果有对话历史，追加到 prompt
+    4. 调用 DeepSeek LLM 获取角色化回复
     """
     personas = load_personas()
     persona = next((p for p in personas if p["id"] == persona_id), None)
@@ -164,6 +165,15 @@ def persona_think(persona_id, user_problem, clothing_tag):
         system_prompt = build_room_system_prompt(persona, user_problem)
     else:
         system_prompt = build_system_prompt(persona, clothing_tag)
+
+    # 追加对话历史
+    if history and len(history) > 0:
+        history_text = "\n\n对话历史：\n"
+        for msg in history[-10:]:  # 最多保留最近10轮
+            speaker = msg.get('speaker', '')
+            content = msg.get('content', '')
+            history_text += f"【{speaker}】: {content}\n"
+        system_prompt += history_text
 
     result = call_llm(system_prompt, user_problem)
 
@@ -435,14 +445,29 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
     return prompt
 
 
-def ask_wardrobe_butler(question, wardrobe_items, misc_items):
+def ask_wardrobe_butler(question, wardrobe_items, misc_items, history=None):
     """
     衣柜智能管家推理：
     1. 构建包含所有衣物和杂物数据的 System Prompt
-    2. 调用 DeepSeek LLM 获取结构化 JSON 回复
-    3. 解析返回 JSON
+    2. 如果有对话历史，追加到 prompt
+    3. 调用 DeepSeek LLM 获取结构化 JSON 回复
+    4. 解析返回 JSON
     """
     system_prompt = build_wardrobe_butler_prompt(question, wardrobe_items, misc_items)
+
+    # 追加对话历史（最近5轮）
+    if history and len(history) > 0:
+        history_text = "\n【对话历史】\n"
+        for msg in history[-10:]:
+            role = "用户" if msg.get('role') == 'user' else "管家"
+            history_text += f"{role}: {msg.get('content', '')}\n"
+        history_text += "\n请结合对话历史回复用户的最新提问，保持上下文连贯。\n"
+        # 把历史插入到 prompt 末尾（在输出格式说明之前）
+        idx = system_prompt.rfind("【输出格式】")
+        if idx > 0:
+            system_prompt = system_prompt[:idx] + history_text + "\n" + system_prompt[idx:]
+        else:
+            system_prompt += "\n" + history_text
 
     result = call_llm_long(system_prompt, question)
     if not result["success"]:
@@ -471,6 +496,12 @@ def ask_wardrobe_butler(question, wardrobe_items, misc_items):
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             text = text[start:end+1]
+
+        # Fix Chinese quotation marks that break JSON parsing
+        text = text.replace('\u201c', "'").replace('\u201d', "'")  # " "
+        text = text.replace('\u2018', "'").replace('\u2019', "'")  # ' '
+        # Escape unescaped double quotes inside JSON string values (simple heuristic)
+        text = re.sub(r'(?<=[^\\])"(?=[^,:}\]])', "'", text)
 
         result = json.loads(text)
 

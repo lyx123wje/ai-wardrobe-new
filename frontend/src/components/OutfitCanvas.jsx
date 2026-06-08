@@ -12,7 +12,7 @@ import Svg, { Defs, Mask, Rect, Circle, Image as SvgImage, RadialGradient, Stop 
 import { captureRef } from 'react-native-view-shot';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const CANVAS_MAX_W = Platform.OS === 'web' ? 500 : 9999;
+const CANVAS_MAX_W = Platform.OS === 'web' ? Math.round(SCREEN_W * 0.65) : 9999;
 const CANVAS_W = Math.min(SCREEN_W - 32, CANVAS_MAX_W);
 const CANVAS_H = Platform.OS === 'web' ? Math.round(CANVAS_W * 0.75) : CANVAS_W * (4 / 3);
 
@@ -42,6 +42,7 @@ function canvasElementPropsAreEqual(prev, next) {
 const CanvasElement = React.memo(function CanvasElement({
   element, isSelected, onSelect, onUpdate,
   eraserMode, eraserSize, eraserSoftness, eraserStrength, onEraserResult,
+  onInteractStart, onInteractEnd,
 }) {
   const startPos = useRef({ x: 0, y: 0 });
   const startPinch = useRef({ scale: 1, distance: 0 });
@@ -263,6 +264,7 @@ const CanvasElement = React.memo(function CanvasElement({
         return evt.nativeEvent.touches?.length >= 1;
       },
       onPanResponderGrant: (evt) => {
+        onInteractStart?.();
         if (eraserModeRef.current) {
           const { locationX, locationY } = evt.nativeEvent;
           const el = elementRef.current;
@@ -339,9 +341,11 @@ const CanvasElement = React.memo(function CanvasElement({
           eraserPathsRef.current = [];
           setEraserPaths([]);
           touchStartPoint.current = null;
+          onInteractEnd?.();
           return;
         }
         isPinching.current = false;
+        onInteractEnd?.();
       },
     })
   ).current;
@@ -431,6 +435,7 @@ const CanvasElement = React.memo(function CanvasElement({
 const OutfitCanvas = forwardRef(({
   elements, background, selectedId, onSelect, onUpdateElement,
   eraserMode, eraserSize, eraserSoftness, eraserStrength, onEraserResult,
+  onInteractStart, onInteractEnd,
 }, ref) => {
   const canvasRef = useRef(null);
 
@@ -471,6 +476,8 @@ const OutfitCanvas = forwardRef(({
               eraserSoftness={eraserSoftness}
               eraserStrength={eraserStrength}
               onEraserResult={onEraserResult}
+              onInteractStart={onInteractStart}
+              onInteractEnd={onInteractEnd}
             />
           ))}
         </ImageBackground>
@@ -495,6 +502,8 @@ const OutfitCanvas = forwardRef(({
             eraserSoftness={eraserSoftness}
             eraserStrength={eraserStrength}
             onEraserResult={onEraserResult}
+            onInteractStart={onInteractStart}
+            onInteractEnd={onInteractEnd}
           />
         ))}
       </View>

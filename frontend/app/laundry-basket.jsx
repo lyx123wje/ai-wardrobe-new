@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Image,
-  Pressable, Alert, ActivityIndicator, RefreshControl,
+  Pressable, Alert, ActivityIndicator, RefreshControl, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -145,8 +145,8 @@ export default function LaundryBasketScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.backText}>← 返回</Text>
+        <Pressable onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()}>
+          <Text style={styles.backText}>{Platform.OS === 'web' ? '← 主页' : '← 返回'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>脏衣篓</Text>
         <View style={styles.countBadge}>

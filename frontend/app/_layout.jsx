@@ -62,9 +62,6 @@ export default function RootLayout() {
     router.replace('/auth');
   }, []);
 
-  const isWeb = Platform.OS === 'web';
-  const isHome = segments[0] == null;
-
   const content = (
     <Stack screenOptions={{ headerShown: false }} />
   );
@@ -82,11 +79,6 @@ export default function RootLayout() {
     <AuthContext.Provider value={{ user, setUser, logout }}>
       <StatusBar style="dark" />
       {content}
-      {isWeb && !isHome && (
-        <Pressable style={styles.homeBtn} onPress={() => router.replace('/')}>
-          <Text style={styles.homeBtnText}>← 主页</Text>
-        </Pressable>
-      )}
       <Toast />
     </AuthContext.Provider>
   );
@@ -95,13 +87,5 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF',
-  },
-  homeBtn: {
-    position: 'absolute', top: 16, left: 16, zIndex: 1000,
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: 'rgba(99,102,241,0.12)',
-  },
-  homeBtnText: {
-    fontSize: 13, fontWeight: '600', color: '#6366f1',
   },
 });

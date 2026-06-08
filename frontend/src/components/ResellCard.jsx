@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, Pressable } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Alert } from 'react-native';
 
 const STATUS_MAP = {
+  '未售出': { color: '#94a3b8', label: '未售出' },
   '待售': { color: '#f59e0b', label: '待售' },
   '议价中': { color: '#3b82f6', label: '议价中' },
   '已售出': { color: '#10b981', label: '已售出' },
@@ -9,8 +10,18 @@ const STATUS_MAP = {
 
 export default function ResellCard({ item, onMarkPrice, onMarkSold, onMoveBack }) {
   const resell = parseResell(item.notes || '');
-  const status = resell.status || '待售';
-  const badge = STATUS_MAP[status] || STATUS_MAP['待售'];
+  const status = resell.status || '未售出';
+  const badge = STATUS_MAP[status] || STATUS_MAP['未售出'];
+
+  const handleGoXianyu = useCallback(() => {
+    Linking.canOpenURL('https://www.goofish.com/').then((supported) => {
+      if (supported) {
+        Linking.openURL('https://www.goofish.com/');
+      } else {
+        Alert.alert('提示', '无法打开闲鱼，请手动搜索');
+      }
+    });
+  }, []);
 
   return (
     <View style={[styles.card, status === '已售出' && styles.cardSold]}>
@@ -43,15 +54,18 @@ export default function ResellCard({ item, onMarkPrice, onMarkSold, onMoveBack }
 
       {status !== '已售出' && (
         <View style={styles.actions}>
-          <Pressable style={styles.actionBtn} onPress={onMarkPrice}>
+          <TouchableOpacity style={styles.actionBtn} onPress={onMarkPrice} activeOpacity={0.7}>
             <Text style={styles.actionText}>{resell.price > 0 ? '改价' : '标价'}</Text>
-          </Pressable>
-          <Pressable style={[styles.actionBtn, styles.actionSold]} onPress={onMarkSold}>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, styles.actionSold]} onPress={onMarkSold} activeOpacity={0.7}>
             <Text style={styles.actionTextSold}>已售出</Text>
-          </Pressable>
-          <Pressable style={[styles.actionBtn, styles.actionBack]} onPress={onMoveBack}>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, styles.actionXianyu]} onPress={handleGoXianyu} activeOpacity={0.7}>
+            <Text style={styles.actionTextXianyu}>去闲鱼</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, styles.actionBack]} onPress={onMoveBack} activeOpacity={0.7}>
             <Text style={styles.actionTextBack}>移回衣柜</Text>
-          </Pressable>
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -112,6 +126,8 @@ const styles = StyleSheet.create({
   actionText: { fontSize: 12, fontWeight: '600', color: '#334155' },
   actionSold: { backgroundColor: '#dcfce7' },
   actionTextSold: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  actionXianyu: { backgroundColor: '#fdf2f8' },
+  actionTextXianyu: { fontSize: 12, fontWeight: '600', color: '#db2777' },
   actionBack: { backgroundColor: '#fef3c7' },
   actionTextBack: { fontSize: 12, fontWeight: '600', color: '#d97706' },
 });

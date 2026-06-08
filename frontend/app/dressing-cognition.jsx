@@ -169,7 +169,7 @@ export default function DressingCognitionScreen() {
     }
   }, [roomId, addMessage]);
 
-  // ===== 倾诉模式: 1v1 对话 =====
+  // ===== 倾诉模式: 1v1 对话（带记忆） =====
   const handleSoloAsk = useCallback(async () => {
     if (!question.trim() || selectedIds.length !== 1) return;
     const pid = selectedIds[0];
@@ -180,8 +180,17 @@ export default function DressingCognitionScreen() {
     setMode('chat');
     setLoading(true);
 
+    // Build conversation history (last 10 messages)
+    const history = messages
+      .filter(m => m.content && !m.isTyping)
+      .slice(-11, -1)  // exclude the just-added user message
+      .map(m => ({
+        speaker: m.speaker === 'user' ? 'user' : m.speakerName,
+        content: m.content,
+      }));
+
     try {
-      const res = await personaRoomThink(pid, question.trim());
+      const res = await personaRoomThink(pid, question.trim(), history);
       if (res.data) {
         const msgId = addMessage(pid, res.data.persona_name || persona.name, res.data.response_text, true);
         setTypingMsgId(msgId);
@@ -191,7 +200,7 @@ export default function DressingCognitionScreen() {
     } finally {
       setLoading(false);
     }
-  }, [question, selectedIds, personas, addMessage]);
+  }, [question, selectedIds, personas, addMessage, messages]);
 
   // ===== 广播模式: 一发多回 =====
   const handleBroadcast = useCallback(async () => {
@@ -453,8 +462,8 @@ export default function DressingCognitionScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>{'<'}</Text>
+        <Pressable onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()} style={styles.backBtn}>
+          <Text style={styles.backText}>{Platform.OS === 'web' ? '← 主页' : '<'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>思维训练室</Text>
         <Pressable onPress={handleReset} style={styles.resetBtn}>

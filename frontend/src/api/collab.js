@@ -19,8 +19,8 @@ export async function getRoom(roomCode, token) {
   return res.data;
 }
 
-export async function shareWardrobe(userId, itemIds, token) {
+export async function shareWardrobe(userId, itemIds, token, roomCode) {
   const headers = { Authorization: `Bearer ${token}` };
-  const res = await api.post('/collab/share-wardrobe', { user_id: userId, item_ids: itemIds }, { headers });
+  const res = await api.post('/collab/share-wardrobe', { user_id: userId, item_ids: itemIds, room_code: roomCode }, { headers });
   return res.data;
 }

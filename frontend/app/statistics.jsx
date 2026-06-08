@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchWardrobe } from '../src/api/wardrobe';
 import { CATEGORY_COLORS } from '../src/utils/constants';
@@ -26,19 +26,24 @@ export default function StatisticsScreen() {
   useEffect(() => { loadData(); }, [loadData]);
   const onRefresh = () => { setRefreshing(true); loadData(); };
 
+  const now = new Date();
+  const thisYear = String(now.getFullYear());
+
+  // 套装不算衣物统计
+  const clothingOnly = useMemo(() => items.filter(i => i.category !== '套装'), [items]);
+
   const overview = useMemo(() => {
-    const totalItems = items.length;
-    const totalValue = items.reduce((s, i) => s + (i.purchase_amount || 0), 0);
-    const totalWears = items.reduce((s, i) => s + (i.wear_count || 0), 0);
-    const priced = items.filter(i => i.purchase_amount > 0 && i.wear_count > 0);
-    const pv = priced.reduce((s, i) => s + i.purchase_amount, 0);
-    const pw = priced.reduce((s, i) => s + i.wear_count, 0);
-    return { totalItems, totalValue, totalWears, avgCpw: pw > 0 ? Math.round(pv / pw) : 0 };
-  }, [items]);
+    const totalItems = clothingOnly.length;
+    const totalValue = clothingOnly.reduce((s, i) => s + (i.purchase_amount || 0), 0);
+    const thisYearItems = clothingOnly.filter(i => (i.purchase_date || '').startsWith(thisYear));
+    const thisYearCount = thisYearItems.length;
+    const thisYearSpend = thisYearItems.reduce((s, i) => s + (i.purchase_amount || 0), 0);
+    return { totalItems, totalValue, thisYearCount, thisYearSpend, thisYear };
+  }, [clothingOnly, thisYear]);
 
   const categoryStats = useMemo(() => {
     const map = {};
-    items.forEach(i => {
+    clothingOnly.forEach(i => {
       const cat = i.category || '其他';
       if (!map[cat]) map[cat] = { count: 0 };
       map[cat].count++;
@@ -46,36 +51,37 @@ export default function StatisticsScreen() {
     return Object.entries(map)
       .map(([cat, d]) => ({
         category: cat, count: d.count,
-        pct: items.length > 0 ? ((d.count / items.length) * 100).toFixed(1) : '0',
+        pct: clothingOnly.length > 0 ? ((d.count / clothingOnly.length) * 100).toFixed(1) : '0',
         color: CATEGORY_COLORS[cat] || '#9CA3AF',
       }))
       .sort((a, b) => b.count - a.count);
-  }, [items]);
-
-  const cpwRanking = useMemo(() =>
-    items.filter(i => i.purchase_amount > 0 && i.wear_count > 0)
-      .map(i => ({ ...i, cpw: +(i.purchase_amount / i.wear_count).toFixed(2) }))
-      .sort((a, b) => a.cpw - b.cpw)
-  , [items]);
+  }, [clothingOnly]);
 
   const mostWorn = useMemo(() =>
-    [...items].filter(i => i.wear_count > 0)
+    [...clothingOnly].filter(i => i.wear_count > 0)
       .sort((a, b) => b.wear_count - a.wear_count).slice(0, 5)
-  , [items]);
+  , [clothingOnly]);
 
-  const neverWorn = useMemo(() => items.filter(i => i.wear_count === 0), [items]);
-  const highCpw = useMemo(() => items.filter(i => {
-    if (i.purchase_amount <= 0 || i.wear_count <= 0) return false;
-    return (i.purchase_amount / i.wear_count) > 100;
-  }), [items]);
+  const recentWorn = useMemo(() =>
+    [...clothingOnly].filter(i => i.last_worn_date)
+      .sort((a, b) => (b.last_worn_date || '').localeCompare(a.last_worn_date || ''))
+      .slice(0, 5)
+  , [clothingOnly]);
+
+  const neverWorn = useMemo(() => clothingOnly.filter(i => i.wear_count === 0), [clothingOnly]);
+
+  const thisYearItems = useMemo(() =>
+    clothingOnly.filter(i => (i.purchase_date || '').startsWith(thisYear))
+      .sort((a, b) => (b.purchase_date || '').localeCompare(a.purchase_date || ''))
+  , [clothingOnly, thisYear]);
 
   const fmt = v => v >= 1000 ? `¥${(v / 1000).toFixed(1)}k` : `¥${v}`;
 
   return (
     <ImageBackground source={require('../assets/bg.png')} style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={styles.backText}>{'<'}</Text>
+        <Pressable onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()} style={styles.headerBtn}>
+          <Text style={styles.backText}>{Platform.OS === 'web' ? '← 主页' : '<'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>衣柜统计</Text>
         <View style={{ width: 40 }} />
@@ -91,12 +97,12 @@ export default function StatisticsScreen() {
           {/* 总览 */}
           <View style={styles.overviewRow}>
             {[
-              { label: '衣物品', value: overview.totalItems, unit: '件' },
-              { label: '总价值', value: fmt(overview.totalValue), unit: '' },
-              { label: '总穿着', value: overview.totalWears, unit: '次' },
-              { label: '均CPW', value: fmt(overview.avgCpw), unit: '' },
+              { label: '衣物品', value: overview.totalItems, unit: '件', color: '#6366f1' },
+              { label: '总价值', value: fmt(overview.totalValue), unit: '', color: '#f59e0b' },
+              { label: `${overview.thisYear}购入`, value: overview.thisYearCount, unit: '件', color: '#10b981' },
+              { label: '今年花费', value: fmt(overview.thisYearSpend), unit: '', color: '#ef4444' },
             ].map((o, i) => (
-              <View key={i} style={styles.overviewBox}>
+              <View key={i} style={[styles.overviewBox, { borderTopWidth: 3, borderTopColor: o.color }]}>
                 <Text style={styles.overviewValue}>{o.value}</Text>
                 <Text style={styles.overviewUnit}>{o.unit}</Text>
                 <Text style={styles.overviewLabel}>{o.label}</Text>
@@ -124,21 +130,6 @@ export default function StatisticsScreen() {
             </View>
           )}
 
-          {/* CPW 排行 */}
-          {cpwRanking.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>CPW 排行 · 最划算</Text>
-              {cpwRanking.slice(0, 10).map((item, idx) => (
-                <View key={item.id} style={styles.rankRow}>
-                  <Text style={styles.rankIdx}>{idx + 1}</Text>
-                  <Text style={styles.rankName} numberOfLines={1}>{item.sub_tag}</Text>
-                  <Text style={styles.rankMeta}>穿{item.wear_count}次 · ¥{item.purchase_amount}</Text>
-                  <Text style={styles.rankCpw}>¥{item.cpw}/次</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
           {/* 最常穿 */}
           {mostWorn.length > 0 && (
             <View style={styles.section}>
@@ -154,28 +145,47 @@ export default function StatisticsScreen() {
             </View>
           )}
 
-          {/* 闲置警告 */}
-          {(neverWorn.length > 0 || highCpw.length > 0) && (
+          {/* 最近穿着 */}
+          {recentWorn.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>闲置警告</Text>
-              {neverWorn.length > 0 && (
-                <View style={styles.warningBox}>
-                  <Text style={styles.warningIcon}>⚠️</Text>
-                  <Text style={styles.warningText}>
-                    {neverWorn.length}件衣物从未穿过：{' '}
-                    {neverWorn.map(i => i.sub_tag).join(' / ')}
-                  </Text>
+              <Text style={styles.sectionTitle}>最近穿着</Text>
+              {recentWorn.map((item, idx) => (
+                <View key={item.id} style={styles.rankRow}>
+                  <Text style={styles.rankIdx}>{idx + 1}</Text>
+                  <Text style={styles.rankName} numberOfLines={1}>{item.sub_tag}</Text>
+                  <Text style={styles.rankMeta}>{item.category}</Text>
+                  <Text style={styles.wearDate}>{item.last_worn_date}</Text>
                 </View>
-              )}
-              {highCpw.length > 0 && (
-                <View style={styles.warningBox}>
-                  <Text style={styles.warningIcon}>💸</Text>
-                  <Text style={styles.warningText}>
-                    {highCpw.length}件衣物CPW超过¥100：{' '}
-                    {highCpw.map(i => `${i.sub_tag}(¥${(i.purchase_amount / i.wear_count).toFixed(0)}/次)`).join(' / ')}
-                  </Text>
+              ))}
+            </View>
+          )}
+
+          {/* 今年购入 */}
+          {thisYearItems.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{overview.thisYear}购入 · {thisYearItems.length}件 · ¥{overview.thisYearSpend}</Text>
+              {thisYearItems.map((item, idx) => (
+                <View key={item.id} style={styles.rankRow}>
+                  <Text style={styles.rankIdx}>{idx + 1}</Text>
+                  <Text style={styles.rankName} numberOfLines={1}>{item.sub_tag}</Text>
+                  <Text style={styles.rankMeta}>{item.purchase_date || '未知'} · {item.category}</Text>
+                  <Text style={styles.wearCount}>{item.purchase_amount > 0 ? `¥${item.purchase_amount}` : '--'}</Text>
                 </View>
-              )}
+              ))}
+            </View>
+          )}
+
+          {/* 闲置警告 */}
+          {neverWorn.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>从未穿过</Text>
+              <View style={styles.warningBox}>
+                <Text style={styles.warningIcon}>⚠️</Text>
+                <Text style={styles.warningText}>
+                  共 {neverWorn.length} 件：{' '}
+                  {neverWorn.map(i => i.sub_tag).join(' / ')}
+                </Text>
+              </View>
             </View>
           )}
 
@@ -226,8 +236,15 @@ const styles = StyleSheet.create({
   rankIdx: { fontSize: 13, fontWeight: '700', color: '#94a3b8', width: 24 },
   rankName: { flex: 1, fontSize: 14, fontWeight: '500', color: '#334155' },
   rankMeta: { flex: 1, fontSize: 12, color: '#94a3b8' },
-  rankCpw: { fontSize: 14, fontWeight: '700', color: '#d97706' },
   wearCount: { fontSize: 14, fontWeight: '700', color: '#06b6d4' },
+  wearDate: { fontSize: 12, fontWeight: '500', color: '#94a3b8' },
+  wearSummaryRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  wearSummaryBox: {
+    flex: 1, backgroundColor: '#F0FDF4', borderRadius: 12,
+    padding: 14, alignItems: 'center',
+  },
+  wearSummaryNum: { fontSize: 20, fontWeight: '700', color: '#16A34A' },
+  wearSummaryLabel: { fontSize: 12, color: '#64748B', marginTop: 2 },
   warningBox: {
     flexDirection: 'row', alignItems: 'flex-start',
     backgroundColor: '#fef2f2', borderRadius: 10, padding: 12, marginBottom: 8,

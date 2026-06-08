@@ -41,6 +41,11 @@ export default function ClothingCard({ item, onPress, multiSelect, isSelected })
             <View style={styles.dirtyDot} />
           </View>
         )}
+        {!multiSelect && item.is_unwanted === 1 && (
+          <View style={styles.unwantedBadge}>
+            <Text style={styles.unwantedBadgeText}>不要</Text>
+          </View>
+        )}
 
         {/* 多选勾选框 */}
         {multiSelect && (
@@ -122,6 +127,20 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: '#ef4444',
+  },
+  unwantedBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: '#f59e0b',
+  },
+  unwantedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
   },
   checkbox: {
     position: 'absolute',

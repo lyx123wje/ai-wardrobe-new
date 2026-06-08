@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, Image, TextInput,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchOutfits, fetchOutfitByDate, deleteOutfit } from '../src/api/outfits';
@@ -143,8 +143,8 @@ export default function OutfitCalendarScreen() {
     <ImageBackground source={require('../assets/bg.png')} style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-          <Text style={styles.backText}>{'<'}</Text>
+        <Pressable onPress={() => Platform.OS === 'web' ? router.replace('/') : router.back()} style={styles.headerBtn}>
+          <Text style={styles.backText}>{Platform.OS === 'web' ? '← 主页' : '<'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>穿搭日历</Text>
         <Pressable onPress={handleAddOutfit} style={styles.addBtn}>
@@ -192,37 +192,31 @@ export default function OutfitCalendarScreen() {
             <Text style={styles.detailSub}>
               {selectedDate} · {selectedOutfit.items?.length || 0} 件单品
             </Text>
-            {selectedOutfit.note ? (
-              <Text style={styles.noteText}> {selectedOutfit.note}</Text>
+
+            {/* 套装截图 */}
+            {selectedOutfit.screenshot ? (
+              <Image source={{ uri: selectedOutfit.screenshot }} style={styles.suitImage} resizeMode="contain" />
             ) : null}
 
-            {selectedOutfit.items?.map(item => {
-              const cpw = item.purchase_amount > 0 && item.wear_count > 0
-                ? (item.purchase_amount / item.wear_count).toFixed(2)
-                : null;
-              return (
-                <View key={item.id} style={styles.itemRow}>
-                  {item.processed_image ? (
-                    <Image source={{ uri: item.processed_image }} style={styles.itemImage} />
-                  ) : (
-                    <View style={[styles.itemImage, styles.itemImagePlaceholder]}>
-                      <Text style={{ fontSize: 18 }}>👕</Text>
-                    </View>
-                  )}
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemName}>{item.sub_tag}</Text>
-                    <Text style={styles.itemMeta}>
-                      {item.category} · {item.color} · ¥{item.purchase_amount} · 穿{item.wear_count}次
-                    </Text>
-                    {cpw && (
-                      <View style={styles.cpwBadge}>
-                        <Text style={styles.cpwText}>CPW ¥{cpw}</Text>
-                      </View>
-                    )}
+            {/* 单品列表 */}
+            {selectedOutfit.items?.length > 0 && (
+              <Text style={styles.itemsTitle}>包含单品</Text>
+            )}
+            {selectedOutfit.items?.map(item => (
+              <View key={item.id} style={styles.itemRow}>
+                {item.processed_image ? (
+                  <Image source={{ uri: item.processed_image }} style={styles.itemImage} />
+                ) : (
+                  <View style={[styles.itemImage, styles.itemImagePlaceholder]}>
+                    <Text style={{ fontSize: 18 }}>👕</Text>
                   </View>
+                )}
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemName}>{item.sub_tag}</Text>
+                  <Text style={styles.itemMeta}>{item.category} · {item.color} · ¥{item.purchase_amount} · 穿{item.wear_count}次</Text>
                 </View>
-              );
-            })}
+              </View>
+            ))}
 
             <Pressable style={styles.deleteBtn} onPress={() => handleDelete(selectedOutfit.id)}>
               <Text style={styles.deleteText}>删除这一天的穿搭</Text>
@@ -318,6 +312,8 @@ const styles = StyleSheet.create({
   detailCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16, marginTop: 16,
   },
+  suitImage: { width: '100%', height: 260, borderRadius: 12, backgroundColor: '#F9FAFB', marginVertical: 10 },
+  itemsTitle: { fontSize: 13, fontWeight: '600', color: '#64748B', marginBottom: 8, marginTop: 4 },
   detailTitle: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginBottom: 4 },
   detailSub: { fontSize: 13, color: '#94a3b8', marginBottom: 8 },
   noteText: {

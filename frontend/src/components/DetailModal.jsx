@@ -3,8 +3,24 @@ import {
   View, Text, TextInput, StyleSheet, Pressable, Modal,
   Image, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { updateWardrobeItem, deleteWardrobeItem } from '../api/wardrobe';
 import { CATEGORIES, CATEGORY_COLORS } from '../utils/constants';
+
+function parseNoteImage(notesRaw) {
+  try {
+    if (notesRaw && notesRaw.startsWith('{')) {
+      const obj = JSON.parse(notesRaw);
+      return { text: obj.text || '', img: obj.img || '' };
+    }
+  } catch {}
+  return { text: notesRaw || '', img: '' };
+}
+
+function buildNoteImage(text, img) {
+  if (!img) return text || '';
+  return JSON.stringify({ text: text || '', img });
+}
 
 function getImageSource(processedImage) {
   if (!processedImage) return null;
@@ -18,6 +34,7 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
   const [editMode, setEditMode] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [noteImage, setNoteImage] = useState('');
 
   const [form, setForm] = useState({
     sub_tag: '',
@@ -30,13 +47,15 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
 
   function enterEdit() {
     if (!item) return;
+    const parsed = parseNoteImage(item.notes || '');
+    setNoteImage(parsed.img);
     setForm({
       sub_tag: item.sub_tag || '',
       category: item.category || '上衣',
       color: item.color || '',
       purchase_date: item.purchase_date || '',
-      price: item.price != null ? String(item.price) : '',
-      notes: item.notes || '',
+      price: item.purchase_amount > 0 ? String(item.purchase_amount) : '',
+      notes: parsed.text,
     });
     setEditMode(true);
   }
@@ -62,11 +81,11 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
         category: form.category,
         color: form.color.trim(),
         purchase_date: form.purchase_date || null,
-        price: form.price ? parseFloat(form.price) : null,
-        notes: form.notes.trim(),
+        purchase_amount: form.price ? parseFloat(form.price) : null,
+        notes: buildNoteImage(form.notes.trim(), noteImage),
       };
       const result = await updateWardrobeItem(item.id, payload);
-      onUpdate?.(item.id, result.data || payload);
+      onUpdate?.(item.id, result.data?.item || payload);
       setEditMode(false);
     } catch (err) {
       Alert.alert('保存失败', '请检查网络后重试');
@@ -166,19 +185,28 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
             </View>
           ) : null}
 
-          {item.price != null ? (
+          {item.purchase_amount > 0 ? (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>价格</Text>
-              <Text style={styles.infoValue}>¥{item.price}</Text>
+              <Text style={styles.infoValue}>¥{item.purchase_amount}</Text>
             </View>
           ) : null}
 
-          {item.notes ? (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>备注</Text>
-              <Text style={styles.infoValue}>{item.notes}</Text>
-            </View>
-          ) : null}
+          {(() => {
+            const noteParsed = parseNoteImage(item.notes || '');
+            if (!noteParsed.text && !noteParsed.img) return null;
+            return (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>备注</Text>
+                <View style={{ flex: 1 }}>
+                  {noteParsed.text ? <Text style={styles.infoValue}>{noteParsed.text}</Text> : null}
+                  {noteParsed.img ? (
+                    <Image source={{ uri: noteParsed.img }} style={{ width: '100%', height: 120, borderRadius: 8, marginTop: 4, backgroundColor: '#F1F5F9' }} resizeMode="contain" />
+                  ) : null}
+                </View>
+              </View>
+            );
+          })()}
         </View>
 
         <View style={styles.actions}>
@@ -302,6 +330,44 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
           multiline
           numberOfLines={3}
         />
+
+        <Text style={styles.fieldLabel}>图片备注</Text>
+        {noteImage ? (
+          <View style={styles.noteImgPreview}>
+            <Image source={{ uri: noteImage }} style={styles.noteImageThumb} resizeMode="contain" />
+            <Pressable style={styles.noteImgRemove} onPress={() => setNoteImage('')}>
+              <Text style={styles.noteImgRemoveText}>移除</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={styles.noteImgActions}>
+          {Platform.OS !== 'web' && (
+            <Pressable style={styles.noteImgBtn} onPress={async () => {
+              try {
+                const p = await ImagePicker.requestCameraPermissionsAsync();
+                if (!p.granted) { Alert.alert('权限不足', '需要相机权限'); return; }
+                const r = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.8 });
+                if (!r.canceled && r.assets?.[0]?.base64) {
+                  setNoteImage(`data:image/jpeg;base64,${r.assets[0].base64}`);
+                }
+              } catch { Alert.alert('拍照失败'); }
+            }}>
+              <Text style={styles.noteImgBtnIcon}>📷</Text>
+              <Text style={styles.noteImgBtnLabel}>拍照</Text>
+            </Pressable>
+          )}
+          <Pressable style={styles.noteImgBtn} onPress={async () => {
+            try {
+              const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.8 });
+              if (!r.canceled && r.assets?.[0]?.base64) {
+                setNoteImage(`data:image/jpeg;base64,${r.assets[0].base64}`);
+              }
+            } catch { Alert.alert('选择失败'); }
+          }}>
+            <Text style={styles.noteImgBtnIcon}>🖼️</Text>
+            <Text style={styles.noteImgBtnLabel}>相册</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.editActions}>
           <Pressable style={styles.cancelBtn} onPress={cancelEdit}>
@@ -570,5 +636,49 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  noteImgActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  noteImgBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  noteImgBtnIcon: {
+    fontSize: 16,
+  },
+  noteImgBtnLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#334155',
+  },
+  noteImgPreview: {
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  noteImageThumb: {
+    width: '100%',
+    height: 160,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 8,
+  },
+  noteImgRemove: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  noteImgRemoveText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#EF4444',
   },
 });

@@ -32,6 +32,12 @@ export function markAllClean() {
   return api.post('/wardrobe/mark_all_clean');
 }
 
-export function askWardrobe(question) {
-  return api.post('/wardrobe/ask', { question });
+export function askWardrobe(question, history = []) {
+  return api.post('/wardrobe/ask', { question, history });
+}
+
+export function fetchSharedWardrobe(ownerId) {
+  const params = {};
+  if (ownerId) params.owner_id = ownerId;
+  return api.get('/wardrobe/shared', { params });
 }
