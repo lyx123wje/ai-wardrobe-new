@@ -104,10 +104,12 @@ export default function MiscAddModal({ visible, onClose, onSaved }) {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.pickButtons}>
+          {Platform.OS !== 'web' && (
           <Pressable style={styles.pickBtn} onPress={takePhoto}>
             <Text style={styles.pickBtnIcon}>📷</Text>
             <Text style={styles.pickBtnLabel}>拍照</Text>
           </Pressable>
+          )}
           <Pressable style={styles.pickBtn} onPress={pickFromGallery}>
             <Text style={styles.pickBtnIcon}>🖼️</Text>
             <Text style={styles.pickBtnLabel}>从相册选择</Text>

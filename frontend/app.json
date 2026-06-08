@@ -33,23 +33,20 @@
           "photosPermission": "允许 AI 衣橱访问相册以添加衣物照片",
           "cameraPermission": "允许 AI 衣橱访问相机以拍摄衣物照片"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 AI 衣橱访问相机以扫描协作二维码"
+        }
       ]
     ],
-    "updates": {
-      "url": "https://u.expo.dev/47328a9d-81a5-412b-8afc-534587c67647"
-    },
-    "runtimeVersion": {
-      "policy": "sdkVersion"
-    },
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "apiBaseUrl": "http://10.29.137.80:5000",
-      "router": {},
-      "eas": {
-        "projectId": "47328a9d-81a5-412b-8afc-534587c67647"
-      }
+      "router": {}
     },
     "owner": "riyo_ale"
   }

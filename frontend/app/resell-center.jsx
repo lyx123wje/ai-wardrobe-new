@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, ScrollView, TextInput,
+  ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, TextInput,
   ActivityIndicator, Alert, Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -103,7 +103,7 @@ export default function ResellCenterScreen() {
   }, [loadItems]);
 
   return (
-    <View style={styles.container}>
+    <ImageBackground source={require('../assets/bg.png')} style={styles.container}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBtn}>
           <Text style={styles.backText}>{'<'}</Text>
@@ -204,12 +204,12 @@ export default function ResellCenterScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fc' },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 50, paddingBottom: 12, paddingHorizontal: 16,

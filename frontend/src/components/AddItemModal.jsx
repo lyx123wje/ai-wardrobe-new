@@ -181,10 +181,12 @@ export default function AddItemModal({ visible, onClose, onSaved }) {
         <ScrollView contentContainerStyle={styles.pickingContent}>
           {/* 选图按钮 */}
           <View style={styles.pickButtons}>
+            {Platform.OS !== 'web' && (
             <Pressable style={styles.pickBtn} onPress={takePhoto}>
               <Text style={styles.pickBtnIcon}>📷</Text>
               <Text style={styles.pickBtnLabel}>拍照</Text>
             </Pressable>
+            )}
             <Pressable style={styles.pickBtn} onPress={pickFromGallery}>
               <Text style={styles.pickBtnIcon}>🖼️</Text>
               <Text style={styles.pickBtnLabel}>从相册选择</Text>

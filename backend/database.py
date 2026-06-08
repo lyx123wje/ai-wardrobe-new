@@ -10,11 +10,16 @@ _thread_local = threading.local()
 
 def get_connection():
     """获取线程本地数据库连接，避免频繁创建销毁连接"""
-    if not hasattr(_thread_local, "conn"):
-        _thread_local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _thread_local.conn.row_factory = sqlite3.Row
-        _thread_local.conn.execute("PRAGMA journal_mode=WAL")
-        _thread_local.conn.execute("PRAGMA foreign_keys=ON")
+    if hasattr(_thread_local, "conn"):
+        try:
+            _thread_local.conn.execute("SELECT 1")
+            return _thread_local.conn
+        except:
+            del _thread_local.conn
+    _thread_local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    _thread_local.conn.row_factory = sqlite3.Row
+    _thread_local.conn.execute("PRAGMA journal_mode=WAL")
+    _thread_local.conn.execute("PRAGMA foreign_keys=ON")
     return _thread_local.conn
 
 
@@ -94,6 +99,16 @@ def init_db():
             location TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             is_lost INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            nickname TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            avatar TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -495,6 +510,33 @@ def delete_misc_item(item_id):
     conn.commit()
     conn.close()
     return True
+
+
+# ── User CRUD ──
+
+def create_user(user_id, nickname, password_hash):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO users (id, nickname, password_hash) VALUES (?, ?, ?)",
+        (user_id, nickname, password_hash)
+    )
+    conn.commit()
+    row = cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+def get_user_by_id(user_id):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_nickname(nickname):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE nickname = ?", (nickname,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 # ── Initialization ──

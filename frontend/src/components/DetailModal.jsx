@@ -323,7 +323,7 @@ export default function DetailModal({ visible, item, onClose, onUpdate, onDelete
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <KeyboardAvoidingView
         style={styles.modal}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
           <Pressable onPress={handleClose} style={styles.headerBtn}>

@@ -34,6 +34,7 @@ import { useAuth } from './_layout';
 import { showToast } from '../src/utils/toast';
 import * as collabSocket from '../src/services/collabSocket';
 import * as voiceChat from '../src/services/voiceChat';
+import { addRecentCollab } from '../src/services/recentCollabs';
 import CollabInviteModal from '../src/components/CollabInviteModal';
 import CollabChat from '../src/components/CollabChat';
 import CollabToolbar from '../src/components/CollabToolbar';
@@ -660,6 +661,11 @@ export default function OOTDLabScreen() {
         const partner = members.find((m) => m.nickname !== user?.nickname);
         if (partner) {
           setPartnerNickname(partner.nickname);
+          addRecentCollab({
+            roomCode,
+            partnerNickname: partner.nickname,
+            partnerUserId: partner.user_id,
+          });
         }
       }
     } catch (e) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { ImageBackground, View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchWardrobe } from '../src/api/wardrobe';
 import { CATEGORY_COLORS } from '../src/utils/constants';
@@ -72,7 +72,7 @@ export default function StatisticsScreen() {
   const fmt = v => v >= 1000 ? `¥${(v / 1000).toFixed(1)}k` : `¥${v}`;
 
   return (
-    <View style={styles.container}>
+    <ImageBackground source={require('../assets/bg.png')} style={styles.container}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBtn}>
           <Text style={styles.backText}>{'<'}</Text>
@@ -187,12 +187,12 @@ export default function StatisticsScreen() {
           )}
         </ScrollView>
       )}
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fc' },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 50, paddingBottom: 12, paddingHorizontal: 16,

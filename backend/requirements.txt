@@ -5,3 +5,7 @@ pillow
 torch
 torchvision
 requests
+bcrypt==4.2.0
+pyjwt==2.9.0
+flask-socketio
+eventlet
