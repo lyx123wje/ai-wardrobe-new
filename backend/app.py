@@ -1106,7 +1106,10 @@ def api_collab_share_wardrobe():
             return jsonify({"status": "error", "message": "缺少 room_code"}), 400
         result = collab_manager.share_wardrobe(room_code, request.user_id, data["item_ids"])
         if not result:
-            return jsonify({"status": "error", "message": "分享失败，房间不存在或对方未加入"}), 404
+            room = collab_manager.rooms.get(room_code)
+            detail = "房间不存在" if not room else f"对方未加入(现有成员: {list(room.get('members', {}).keys())[:3]}, 请求用户: {request.user_id[:16] if request.user_id else 'N/A'})"
+            print(f"[collab] share_wardrobe REST 失败: room={room_code}, user={request.user_id[:16] if request.user_id else 'N/A'}, detail={detail}")
+            return jsonify({"status": "error", "message": f"分享失败: {detail}"}), 404
         return jsonify({"status": "success", "shared_count": len(data["item_ids"])})
     except Exception as e:
         print(f"[错误] 共享衣柜出错: {e}")

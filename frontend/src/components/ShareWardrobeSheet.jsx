@@ -44,10 +44,11 @@ export default function ShareWardrobeSheet({ visible, items, onClose, onShared, 
       const token = await getToken();
       const user = await getUser();
       await shareWardrobe(user.user_id, [...selectedIds], token, roomCode);
-      onShared([...selectedIds]);
     } catch (e) {
-      console.error('Share wardrobe failed:', e);
+      console.error('Share wardrobe REST failed, 使用 socket 兜底:', e?.message);
     } finally {
+      // 无论 REST API 是否成功，都走 socket 通知对方
+      onShared([...selectedIds]);
       setLoading(false);
       onClose();
     }
