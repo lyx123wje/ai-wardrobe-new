@@ -501,7 +501,25 @@ export default function OOTDLabScreen() {
       }
       if (result.canceled || !result.assets?.[0]) return;
 
-      const base64 = result.assets[0].base64;
+      let base64 = result.assets[0].base64;
+      // Web 端 expo-image-picker 可能不返回 base64，blob URL 无法跨设备使用
+      if (!base64 && Platform.OS === 'web') {
+        try {
+          const blobUri = result.assets[0].uri;
+          if (blobUri && blobUri.startsWith('blob:')) {
+            const response = await fetch(blobUri);
+            const blob = await response.blob();
+            base64 = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const dataUri = reader.result;
+                resolve(dataUri.split(',')[1]); // 去掉 "data:image/...;base64," 前缀
+              };
+              reader.readAsDataURL(blob);
+            });
+          }
+        } catch {}
+      }
       if (!base64) {
         Alert.alert('错误', '无法读取图片数据');
         return;
