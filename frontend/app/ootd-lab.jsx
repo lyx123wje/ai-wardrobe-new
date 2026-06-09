@@ -628,15 +628,33 @@ export default function OOTDLabScreen() {
 
     const handleWardrobeShared = async (data) => {
       console.log('[Collab] Wardrobe shared by', data.from_nickname, data.item_ids);
-      if (!partnerUserIdRef.current) {
+      const pid = partnerUserIdRef.current;
+      if (!pid) {
         console.log('[Collab] partnerUserId 未设置，跳过加载');
         return;
       }
+      // 尝试加载，失败后 500ms 重试一次（处理 DB 写入时序问题）
+      const tryLoad = async () => {
+        const res = await fetchSharedWardrobe(pid);
+        const items = res.data?.shared || [];
+        console.log('[Collab] 加载结果:', items.length, '组');
+        setSharedGroups(items);
+        return items.length > 0;
+      };
       try {
-        const res = await fetchSharedWardrobe(partnerUserIdRef.current);
-        setSharedGroups(res.data?.shared || []);
+        const ok = await tryLoad();
+        if (!ok) {
+          console.log('[Collab] 首次加载为空，500ms后重试...');
+          setTimeout(async () => {
+            await tryLoad();
+          }, 500);
+        }
       } catch (err) {
-        console.error('[Collab] 加载分享失败:', err?.response?.status);
+        console.error('[Collab] 加载分享失败:', err?.response?.status, err?.message);
+        // 重试一次
+        setTimeout(async () => {
+          try { await tryLoad(); } catch {}
+        }, 500);
       }
     };
 
@@ -680,6 +698,15 @@ export default function OOTDLabScreen() {
     collabSocket.on('partner_left', handlePartnerLeft);
     collabSocket.on('full_state_sync', handleFullState);
     collabSocket.on('wardrobe_shared', handleWardrobeShared);
+    const handleRoomInfo = (data) => {
+      if (data.partner && data.partner.user_id && !partnerUserIdRef.current) {
+        console.log('[Collab] room_info 兜底设置 partner:', data.partner.nickname);
+        partnerUserIdRef.current = data.partner.user_id;
+        setPartnerNickname(data.partner.nickname || '');
+        setPartnerUserId(data.partner.user_id);
+      }
+    };
+    collabSocket.on('room_info', handleRoomInfo);
     collabSocket.on('webrtc_offer', handleWebrtcOffer);
     collabSocket.on('webrtc_answer', handleWebrtcAnswer);
     collabSocket.on('webrtc_ice_candidate', handleWebrtcIce);
@@ -694,6 +721,7 @@ export default function OOTDLabScreen() {
       collabSocket.off('partner_left', handlePartnerLeft);
       collabSocket.off('full_state_sync', handleFullState);
       collabSocket.off('wardrobe_shared', handleWardrobeShared);
+      collabSocket.off('room_info', handleRoomInfo);
       collabSocket.off('webrtc_offer', handleWebrtcOffer);
       collabSocket.off('webrtc_answer', handleWebrtcAnswer);
       collabSocket.off('webrtc_ice_candidate', handleWebrtcIce);
