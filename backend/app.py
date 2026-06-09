@@ -908,6 +908,30 @@ def api_wardrobe_ask():
                         db.delete_diary_entry(diary_id, request.user_id)
                         action["status"] = "done"
                         executed_actions.append(action)
+                elif action_type == "update_wardrobe_info":
+                    item_id = action.get("item_id")
+                    name = action.get("name", "")
+                    updates = action.get("updates", {})
+                    if item_id and updates:
+                        # 处理 purchase_amount：确保是数字
+                        if "purchase_amount" in updates:
+                            try:
+                                updates["purchase_amount"] = int(float(updates["purchase_amount"]))
+                            except (ValueError, TypeError):
+                                pass  # 保持原样
+                        db.update_wardrobe_item(item_id, request.user_id, **updates)
+                        action["status"] = "done"
+                        action["applied_updates"] = updates
+                        executed_actions.append(action)
+                elif action_type == "update_misc_info":
+                    misc_id = action.get("misc_id")
+                    name = action.get("name", "")
+                    updates = action.get("updates", {})
+                    if misc_id and updates:
+                        db.update_misc_item(misc_id, request.user_id, **updates)
+                        action["status"] = "done"
+                        action["applied_updates"] = updates
+                        executed_actions.append(action)
             except Exception as e:
                 print(f"[管家] 执行 action 失败: {action}, error: {e}")
                 action["status"] = "failed"

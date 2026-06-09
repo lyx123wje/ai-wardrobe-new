@@ -430,7 +430,9 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 7. 当用户表达"记录/记下来/帮我记/同步日记"意图时（如"记一下今天XX""帮我记个事"），返回 create_diary 操作，date用当天日期或用户指定的日期
 8. 当用户询问"有没有/谁/什么时候/查一下/检索"等需要查历史记录的问题时，返回 search_diary 操作，keyword为用户问题中的关键词
 9. 当用户要求"删除/删掉"某条日记时，返回 delete_diary 操作，需要提供diary_id
-10. 当用户在杂物中找不到某物品时，诚实告知。不要编造不存在于清单中的物品。
+10. 当用户提供衣物的补充信息或纠正时（如"XX是多少钱买的""XX其实是蓝色的""XX的购买日期是去年""XX是XX牌子的"），返回 update_wardrobe_info 操作。可更新字段：purchase_amount(价格数字), purchase_date(日期), sub_tag(名称), color(颜色), category(分类), notes(备注)
+11. 当用户提供杂物的补充信息时（如"那把剪刀其实是张小泉牌的"），返回 update_misc_info 操作。可更新字段：name(名称), notes(备注)
+12. 当用户在杂物中找不到某物品时，诚实告知。不要编造不存在于清单中的物品。
 
 【回复风格】你的回复必须亲切自然，像朋友聊天一样。每次只回答一个核心问题，不要堆砌信息。适当使用语气词（哦、呢、呀、哈）。
 
@@ -446,6 +448,8 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 - create_diary: {{"type":"create_diary","content":"日记内容","date":"2026-06-09"}}
 - search_diary: {{"type":"search_diary","keyword":"关键词"}}
 - delete_diary: {{"type":"delete_diary","diary_id":1}}
+- update_wardrobe_info: {{"type":"update_wardrobe_info","item_id":5,"name":"睡裤","updates":{{"purchase_amount":800,"purchase_date":"2025"}}}}
+- update_misc_info: {{"type":"update_misc_info","misc_id":3,"name":"剪刀","updates":{{"notes":"小泉牌"}}}}
 
 【规则】
 - 如果用户只是询问信息，actions 返回空数组 []
@@ -455,7 +459,10 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 - related_items 列举回答中涉及的物品。衣物需包含 id, type:"wardrobe", name, category, color, wear_count, purchase_amount；杂物需包含 id, type:"misc", name, location。图片由系统自动补充，无需你填写。
 - 衣物ID和杂物ID是两个独立的体系！衣物ID对应衣物清单表格，杂物ID对应杂物清单表格，绝对不能混淆
 - search_diary 的 keyword 为用户问题中提取的核心关键词（1-3个词），不要整句搜索
-- create_diary 的 date 默认用当天日期，除非用户指定了其他日期"""
+- create_diary 的 date 默认用当天日期，除非用户指定了其他日期
+- update_wardrobe_info 的 updates 只包含用户明确提到的字段。purchase_amount用纯数字（如800），不要带元/¥。purchase_date用自然描述即可（如"2025"或"去年"）。
+- update_misc_info 同理，updates 只包含用户明确提到的字段
+- 当用户同时表达了物品补充信息和想记录，可以同时返回 update_wardrobe_info/update_misc_info 和 create_diary 两个 action"""
     return prompt
 
 

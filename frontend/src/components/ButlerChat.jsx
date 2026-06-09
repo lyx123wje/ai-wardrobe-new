@@ -20,6 +20,12 @@ const inMemoryStorage = {
 };
 const storage = inMemoryStorage;
 
+const FIELD_LABELS = {
+  sub_tag: '名称', category: '分类', color: '颜色',
+  purchase_amount: '购买价格', purchase_date: '购买日期',
+  notes: '备注', name: '名称', location: '位置',
+};
+
 const QUICK_QUESTIONS = [
   '什么东西在哪？',
   '我有多少件衣服？',
@@ -169,6 +175,42 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
             <Text style={styles.actionCardText}>
               已取消「{action.name}」的不想要标记，已从"卖了还钱"页移除
             </Text>
+          </View>
+        );
+      case 'update_wardrobe_info':
+        return (
+          <View key={`action-${idx}`} style={styles.actionCardInfo}>
+            <Text style={styles.actionCardIcon}>✏️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCardText}>
+                已更新「{action.name}」的信息
+              </Text>
+              {action.applied_updates ? (
+                Object.entries(action.applied_updates).map(([key, val]) => (
+                  <Text key={key} style={styles.actionCardDetail}>
+                    {FIELD_LABELS[key] || key}: {val}
+                  </Text>
+                ))
+              ) : null}
+            </View>
+          </View>
+        );
+      case 'update_misc_info':
+        return (
+          <View key={`action-${idx}`} style={styles.actionCardInfo}>
+            <Text style={styles.actionCardIcon}>✏️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCardText}>
+                已更新「{action.name}」的信息
+              </Text>
+              {action.applied_updates ? (
+                Object.entries(action.applied_updates).map(([key, val]) => (
+                  <Text key={key} style={styles.actionCardDetail}>
+                    {FIELD_LABELS[key] || key}: {val}
+                  </Text>
+                ))
+              ) : null}
+            </View>
           </View>
         );
       default:
@@ -420,8 +462,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2', padding: 10, borderRadius: 10,
     borderWidth: 1, borderColor: '#fecaca',
   },
+  actionCardInfo: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#eff6ff', padding: 10, borderRadius: 10,
+    borderWidth: 1, borderColor: '#bfdbfe',
+  },
   actionCardIcon: { fontSize: 18 },
   actionCardText: { flex: 1, fontSize: 13, color: '#1e293b', lineHeight: 18 },
+  actionCardDetail: { fontSize: 12, color: '#475569', marginTop: 3 },
   relatedCards: { marginTop: 10, gap: 8 },
   relatedCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
