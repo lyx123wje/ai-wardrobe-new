@@ -38,24 +38,15 @@ const DEFAULT_HIT = [
 // ═══════════════════════════════════════════
 //  Web 端主页：卡片网格
 // ═══════════════════════════════════════════
-function WebHome({ user, logout }) {
+function WebHome({ user }) {
   const router = useRouter();
 
   return (
     <ScrollView style={webS.container} contentContainerStyle={webS.content}>
       <View style={webS.header}>
         <View>
-          <Text style={webS.greeting}>AI 衣橱</Text>
           <Text style={webS.subtitle}>智能服装管理助手</Text>
         </View>
-        <Pressable style={webS.userBtn} onPress={() => {
-          Alert.alert('退出登录', '确定要退出登录吗？', [
-            { text: '取消' },
-            { text: '退出', style: 'destructive', onPress: logout },
-          ]);
-        }}>
-          <Text style={webS.userText}>{user?.nickname || '用户'}</Text>
-        </Pressable>
       </View>
 
       <View style={webS.grid}>
@@ -253,7 +244,7 @@ export default function Home() {
   const isWeb = Platform.OS === 'web';
 
   if (isWeb) {
-    return <WebHome user={user} logout={logout} />;
+    return <WebHome user={user} />;
   }
   return <MobileHome user={user} logout={logout} />;
 }
