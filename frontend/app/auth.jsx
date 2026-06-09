@@ -56,14 +56,17 @@ export default function AuthScreen() {
     try {
       if (isRegister) {
         const data = await register(nickname.trim(), password);
-        const user = { user_id: data.user_id, nickname: data.nickname };
-        await saveAuth(data.token, user);
-        setUser(user);
-        setTimeout(() => {
-          Alert.alert('注册成功', `你的用户ID: ${data.user_id}`, [
-            { text: '进入主页', onPress: () => router.replace('/') },
-          ]);
-        }, 100);
+        Alert.alert('注册成功', `你的用户ID是: ${data.user_id}\n请牢记，用于登录！`, [
+          {
+            text: '确定，去登录',
+            onPress: () => {
+              setMode('login');
+              setUserIdForLogin(data.user_id);
+              setNickname('');
+              setPassword('');
+            },
+          },
+        ]);
       } else {
         const data = await login(userIdForLogin.trim(), password);
         const user = { user_id: data.user_id, nickname: data.nickname };
