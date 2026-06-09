@@ -580,6 +580,7 @@ export default function OOTDLabScreen() {
     };
 
     const handlePartnerJoined = (data) => {
+      partnerUserIdRef.current = data.user_id || '';
       setPartnerNickname(data.nickname || '');
       setPartnerUserId(data.user_id || '');
       // Send full state sync to new joiner
@@ -591,6 +592,7 @@ export default function OOTDLabScreen() {
     };
 
     const handlePartnerLeft = () => {
+      partnerUserIdRef.current = '';
       setPartnerNickname('');
       setPartnerUserId('');
       setChatMessages((prev) => [...prev, { text: '好友已离开房间', from: 'system' }]);
@@ -698,6 +700,7 @@ export default function OOTDLabScreen() {
         const members = Object.values(roomData.room.members || {});
         const partner = members.find((m) => m.nickname !== user?.nickname);
         if (partner) {
+          partnerUserIdRef.current = partner.user_id;
           setPartnerNickname(partner.nickname);
           setPartnerUserId(partner.user_id);
           addRecentCollab({
@@ -729,6 +732,7 @@ export default function OOTDLabScreen() {
     setCollabRoomCode('');
     setPartnerNickname('');
     setPartnerUserId('');
+    partnerUserIdRef.current = '';
     setVoiceEnabled(false);
     setChatVisible(false);
     setChatMessages([]);
