@@ -63,10 +63,16 @@ export default function RootLayout() {
   }, []);
 
   const handleLogoutPress = () => {
-    Alert.alert('退出登录', '确定要退出登录吗？', [
-      { text: '取消' },
-      { text: '退出', style: 'destructive', onPress: logout },
-    ]);
+    if (Platform.OS === 'web') {
+      if (window.confirm('确定要退出登录吗？')) {
+        logout();
+      }
+    } else {
+      Alert.alert('退出登录', '确定要退出登录吗？', [
+        { text: '取消' },
+        { text: '退出', style: 'destructive', onPress: logout },
+      ]);
+    }
   };
 
   const content = (
@@ -112,12 +118,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 12,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
+    zIndex: 999,
   },
   globalTitle: { fontSize: 17, fontWeight: '700', color: '#6366f1' },
   globalUserBtn: {
     paddingHorizontal: 16, paddingVertical: 6,
     backgroundColor: '#f1f5f9', borderRadius: 20,
     borderWidth: 1, borderColor: '#e2e8f0',
+    cursor: 'pointer', userSelect: 'none',
   },
   globalUserText: { fontSize: 14, fontWeight: '500', color: '#1e293b' },
 });
