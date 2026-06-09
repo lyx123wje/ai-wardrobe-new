@@ -694,13 +694,22 @@ export default function OOTDLabScreen() {
             partnerNickname: partner.nickname,
             partnerUserId: partner.user_id,
           });
+          // 立即拉取已分享的衣服（不依赖 useEffect 的异步时序）
+          try {
+            const res = await fetchSharedWardrobe(partner.user_id);
+            const shared = res.data?.shared;
+            console.log('[共享衣柜] 进入房间后加载 partner:', partner.user_id?.slice(0, 8), '→', shared?.length || 0, '组');
+            setSharedGroups(shared || []);
+          } catch (err2) {
+            console.error('[共享衣柜] 进入房间加载失败:', err2?.response?.status);
+          }
         }
       }
     } catch (e) {
       Alert.alert('连接失败', '无法连接到协作服务器');
     }
     setShowCollabInvite(false);
-  }, [user]);
+  }, [user, setSharedGroups]);
 
   const handleLeaveCollab = useCallback(() => {
     collabSocket.disconnect();
