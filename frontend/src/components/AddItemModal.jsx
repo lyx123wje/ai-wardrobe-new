@@ -220,13 +220,27 @@ export default function AddItemModal({ visible, onClose, onSaved }) {
   }
 
   function renderProcessingStep() {
+    const currentImg = pendingImages[processingIndex];
+    const pct = pendingImages.length > 0 ? Math.round(((processingIndex + 1) / pendingImages.length) * 100) : 0;
     return (
       <View style={styles.centerContent}>
-        <Text style={styles.stepTitle}>AI 识别中</Text>
-        <ActivityIndicator size="large" color="#6366f1" style={styles.spinner} />
-        <Text style={styles.progressText}>
-          正在识别 {processingIndex + 1} / {pendingImages.length}
-        </Text>
+        {/* Current image preview */}
+        {currentImg ? (
+          <Image source={{ uri: currentImg.uri }} style={styles.processingPreview} resizeMode="contain" />
+        ) : null}
+        <View style={styles.processingCard}>
+          <Text style={styles.processingEmoji}>🤖</Text>
+          <Text style={styles.processingTitle}>AI 正在分析中</Text>
+          <Text style={styles.processingSub}>正在抠图 + 识别分类...</Text>
+          <ActivityIndicator size="large" color="#6366f1" style={{ marginVertical: 16 }} />
+          {/* Progress bar */}
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          </View>
+          <Text style={styles.progressText}>
+            {processingIndex + 1} / {pendingImages.length} 件
+          </Text>
+        </View>
       </View>
     );
   }
@@ -423,7 +437,18 @@ const styles = StyleSheet.create({
   stepTitle: { fontSize: 22, fontWeight: '700', color: '#1e293b', marginBottom: 8, textAlign: 'center' },
   stepSubtitle: { fontSize: 15, color: '#64748b', textAlign: 'center' },
   spinner: { marginVertical: 24 },
-  progressText: { fontSize: 16, color: '#64748b', marginTop: 4 },
+  processingPreview: { width: 160, height: 160, borderRadius: 16, backgroundColor: '#F3F4F6', marginBottom: 16 },
+  processingCard: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 24,
+    alignItems: 'center', width: '100%', maxWidth: 320,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4,
+  },
+  processingEmoji: { fontSize: 48, marginBottom: 8 },
+  processingTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 4 },
+  processingSub: { fontSize: 14, color: '#64748B', marginBottom: 4 },
+  progressTrack: { width: '100%', height: 6, backgroundColor: '#F1F5F9', borderRadius: 3, overflow: 'hidden', marginTop: 4 },
+  progressFill: { height: 6, backgroundColor: '#6366F1', borderRadius: 3 },
+  progressText: { fontSize: 14, fontWeight: '600', color: '#6366F1', marginTop: 10 },
   stepContainer: { flex: 1 },
   // Picking
   pickingContent: { paddingHorizontal: 20, paddingBottom: 40, flexGrow: 1 },

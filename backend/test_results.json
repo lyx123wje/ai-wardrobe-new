@@ -1,0 +1,191 @@
+{
+  "passed": 37,
+  "total": 37,
+  "results": [
+    {
+      "name": "注册成功",
+      "ok": true,
+      "detail": "{\n  \"nickname\": \"test_user_a\",\n  \"status\": \"success\",\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVC"
+    },
+    {
+      "name": "登录成功",
+      "ok": true,
+      "detail": "{\n  \"nickname\": \"test_user_a\",\n  \"status\": \"success\",\n  \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVC"
+    },
+    {
+      "name": "Token验证通过",
+      "ok": true,
+      "detail": "{\n  \"nickname\": \"test_user_a\",\n  \"status\": \"success\",\n  \"user_id\": \"f375207d-6060-4b29-8dc5-26899775"
+    },
+    {
+      "name": "无Token拒绝",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "用户B注册成功",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "创建衣服",
+      "ok": true,
+      "detail": "{\n  \"item\": {\n    \"category\": \"\\u4e0a\\u8863\",\n    \"color\": \"\\u767d\",\n    \"created_at\": \"2026-06-09 1"
+    },
+    {
+      "name": "列出衣服",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "name": "获取单件",
+      "ok": true,
+      "detail": "{\n  \"item\": {\n    \"category\": \"\\u4e0a\\u8863\",\n    \"color\": \"\\u767d\",\n    \"created_at\": \"2026-06-09 1"
+    },
+    {
+      "name": "更新衣服",
+      "ok": true,
+      "detail": "{\n  \"item\": {\n    \"category\": \"\\u4e0a\\u8863\",\n    \"color\": \"\\u84dd\",\n    \"created_at\": \"2026-06-09 1"
+    },
+    {
+      "name": "删除衣服",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "A看不到B的衣服",
+      "ok": true,
+      "detail": "A tags: ['A黑裤', 'A红裙']"
+    },
+    {
+      "name": "B看不到A的衣服",
+      "ok": true,
+      "detail": "B tags: ['B蓝衣', 'B绿裤']"
+    },
+    {
+      "name": "A只能看到自己的",
+      "ok": true,
+      "detail": "A tags: ['A黑裤', 'A红裙']"
+    },
+    {
+      "name": "B只能看到自己的",
+      "ok": true,
+      "detail": "B tags: ['B蓝衣', 'B绿裤']"
+    },
+    {
+      "name": "创建杂物",
+      "ok": true,
+      "detail": "{\n  \"item\": {\n    \"created_at\": \"2026-06-09 11:05:15\",\n    \"id\": 1,\n    \"image\": null,\n    \"is_lost\""
+    },
+    {
+      "name": "A能看到自己的杂物",
+      "ok": true,
+      "detail": "[{'created_at': '2026-06-09 11:05:15', 'id': 1, 'image': None, 'is_lost': 0, 'location': '抽屉', 'name': '剪刀', 'notes': '', 'user_id': 'f375207d-6060-4b29-8dc5-268997759684'}]"
+    },
+    {
+      "name": "B看不到A的杂物",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "创建衣服(用于穿搭)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "保存穿搭",
+      "ok": true,
+      "detail": "{\n  \"outfit\": {\n    \"created_at\": \"2026-06-09 11:05:15\",\n    \"id\": 1,\n    \"items\": [\n      {\n        \"category\": \"\\u4e0a\\u8863\",\n        \"color\": \"\\u9"
+    },
+    {
+      "name": "穿搭增加wear_count",
+      "ok": true,
+      "detail": "wear_count=1"
+    },
+    {
+      "name": "穿搭标记脏衣",
+      "ok": true,
+      "detail": "is_dirty=1"
+    },
+    {
+      "name": "B看不到A的穿搭",
+      "ok": true,
+      "detail": "B outfits=0"
+    },
+    {
+      "name": "A能看到自己的穿搭",
+      "ok": true,
+      "detail": "A outfits=1"
+    },
+    {
+      "name": "有脏衣物品",
+      "ok": true,
+      "detail": "dirty count=1"
+    },
+    {
+      "name": "全部标净",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "标净后无脏衣",
+      "ok": true,
+      "detail": "剩余脏衣=0"
+    },
+    {
+      "name": "标记不想要",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "按不想要筛选有效",
+      "ok": true,
+      "detail": "[{'category': '上衣', 'color': '黑', 'created_at': '2026-06-09 11:05:15', 'id': 6, 'is_dirty': 0, 'is_unwanted': 1, 'last_worn_date': '2026-06-09', 'notes': '', 'original_image': None, 'processed_image': None, 'purchase_amount': 399.0, 'purchase_date': '', 'receipt_image': None, 'sub_tag': 'A外套', 'user_id': 'f375207d-6060-4b29-8dc5-268997759684', 'wear_count': 1}]"
+    },
+    {
+      "name": "不想要衣物包含该件",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "统计有分类数据",
+      "ok": true,
+      "detail": "{'categories': [{'category': '下装', 'count': 2}, {'category': '上衣', 'count': 1}], 'cpw_ranking': [{'category': '上衣', 'color': '黑', 'cpw': 399.0, 'id': "
+    },
+    {
+      "name": "统计有CPW数据",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "创建日记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "A能看到自己的日记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "B看不到A的日记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "删除日记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "总价值计算正确",
+      "ok": true,
+      "detail": "total=¥797.0"
+    },
+    {
+      "name": "今年购入可计算",
+      "ok": true,
+      "detail": "count=0"
+    }
+  ]
+}
