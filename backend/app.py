@@ -116,28 +116,26 @@ def process_clothing():
         print("[衣服引擎] 正在抠图...")
         transparent_data = remove(img_data)
 
-        # Compress: resize large images and convert to JPEG to reduce size
+        # Compress: resize large images to keep response size down
         from PIL import Image as PILImage
         buf = io.BytesIO(transparent_data)
         img = PILImage.open(buf).convert('RGBA')
-        # Resize if wider than 400px to keep response size down
+        # Resize if wider than 400px
         max_w = 400
         if img.width > max_w:
             ratio = max_w / img.width
             new_h = int(img.height * ratio)
             img = img.resize((max_w, new_h), PILImage.LANCZOS)
-        # Convert RGBA to white-bg JPEG for size reduction
-        bg = PILImage.new('RGB', img.size, (255, 255, 255))
-        bg.paste(img, mask=img.split()[3])  # use alpha as mask
-        jpg_buf = io.BytesIO()
-        bg.save(jpg_buf, 'JPEG', quality=75)
-        compressed_data = jpg_buf.getvalue()
+        # Save as PNG to preserve transparency (no white background)
+        png_buf = io.BytesIO()
+        img.save(png_buf, 'PNG', optimize=True)
+        compressed_data = png_buf.getvalue()
 
         print("[衣服引擎] 正在分类...")
         sub_tag, category, raw_index = predict_category(compressed_data)
 
         base64_encoded = base64.b64encode(compressed_data).decode('utf-8')
-        base64_str = f"data:image/jpeg;base64,{base64_encoded}"
+        base64_str = f"data:image/png;base64,{base64_encoded}"
 
         return jsonify({
             "status": "success",
