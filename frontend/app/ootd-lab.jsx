@@ -628,33 +628,33 @@ export default function OOTDLabScreen() {
 
     const handleWardrobeShared = async (data) => {
       console.log('[Collab] Wardrobe shared by', data.from_nickname, data.item_ids);
-      const pid = partnerUserIdRef.current;
+      // 优先用事件自带 from_user_id，兜底用 partnerUserIdRef
+      const pid = data.from_user_id || partnerUserIdRef.current;
       if (!pid) {
-        console.log('[Collab] partnerUserId 未设置，跳过加载');
+        console.log('[Collab] 无法确定发送者 ID，跳过加载');
         return;
       }
-      // 尝试加载，失败后 500ms 重试一次（处理 DB 写入时序问题）
+      // 同步更新 ref（确保后续也能查对）
+      if (data.from_user_id) {
+        partnerUserIdRef.current = data.from_user_id;
+        if (!partnerUserId) setPartnerUserId(data.from_user_id);
+      }
       const tryLoad = async () => {
         const res = await fetchSharedWardrobe(pid);
         const items = res.data?.shared || [];
-        console.log('[Collab] 加载结果:', items.length, '组');
+        console.log('[Collab] 加载结果:', items.length, '组, pid=', pid.slice(0, 8));
         setSharedGroups(items);
         return items.length > 0;
       };
       try {
         const ok = await tryLoad();
         if (!ok) {
-          console.log('[Collab] 首次加载为空，500ms后重试...');
-          setTimeout(async () => {
-            await tryLoad();
-          }, 500);
+          console.log('[Collab] 首次为空，500ms后重试...');
+          setTimeout(async () => { await tryLoad(); }, 500);
         }
       } catch (err) {
-        console.error('[Collab] 加载分享失败:', err?.response?.status, err?.message);
-        // 重试一次
-        setTimeout(async () => {
-          try { await tryLoad(); } catch {}
-        }, 500);
+        console.error('[Collab] 加载失败:', err?.response?.status);
+        setTimeout(async () => { try { await tryLoad(); } catch {} }, 500);
       }
     };
 
