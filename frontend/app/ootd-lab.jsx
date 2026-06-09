@@ -688,6 +688,7 @@ export default function OOTDLabScreen() {
         const partner = members.find((m) => m.nickname !== user?.nickname);
         if (partner) {
           setPartnerNickname(partner.nickname);
+          setPartnerUserId(partner.user_id);
           addRecentCollab({
             roomCode,
             partnerNickname: partner.nickname,
