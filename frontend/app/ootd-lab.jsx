@@ -1077,10 +1077,25 @@ export default function OOTDLabScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         quality: 1,
-        base64: false,
+        base64: true,
       });
       if (!result.canceled && result.assets?.[0]) {
-        const bg = { type: 'image', uri: result.assets[0].uri };
+        let dataUri = result.assets[0].uri;
+        // 若返回的是 blob/localhost URL，转为 data URI 以确保协作时双方都能看到
+        if (Platform.OS === 'web' && dataUri.startsWith('blob:')) {
+          try {
+            const response = await fetch(dataUri);
+            const blob = await response.blob();
+            dataUri = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+          } catch {
+            dataUri = result.assets[0].uri; // 保留原 URI 作为兜底
+          }
+        }
+        const bg = { type: 'image', uri: dataUri };
         setCanvasBackground(bg);
         emitBgChanged(bg);
         setShowBgSheet(false);
