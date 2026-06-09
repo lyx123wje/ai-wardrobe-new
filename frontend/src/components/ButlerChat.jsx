@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable, Modal,
-  ActivityIndicator, ScrollView, KeyboardAvoidingView,
+  Image, ActivityIndicator, ScrollView, KeyboardAvoidingView,
   Platform, Alert,
 } from 'react-native';
 import { askWardrobe } from '../api/wardrobe';
@@ -177,17 +177,37 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
   }
 
   function renderRelatedItem(item, idx) {
+    const isWardrobe = item.type === 'wardrobe';
     return (
       <View key={`related-${idx}`} style={styles.relatedCard}>
-        <Text style={styles.relatedIcon}>{item.type === 'misc' ? '📦' : '👔'}</Text>
+        {isWardrobe && item.image ? (
+          <Image
+            source={{ uri: item.image }}
+            style={styles.relatedImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <Text style={styles.relatedIcon}>{isWardrobe ? '👔' : '📦'}</Text>
+        )}
         <View style={styles.relatedInfo}>
           <Text style={styles.relatedName}>{item.name}</Text>
-          {item.location ? (
-            <Text style={styles.relatedDetail}>📍 {item.location}</Text>
-          ) : null}
-          {item.category ? (
-            <Text style={styles.relatedDetail}>{item.category}</Text>
-          ) : null}
+          {isWardrobe ? (
+            <>
+              <Text style={styles.relatedDetail}>
+                {item.category || ''}{item.color ? ` · ${item.color}` : ''}
+              </Text>
+              <Text style={styles.relatedDetail}>
+                穿{item.wear_count || 0}次
+                {item.purchase_amount > 0 ? ` · ¥${item.purchase_amount}` : ''}
+              </Text>
+            </>
+          ) : (
+            <>
+              {item.location ? (
+                <Text style={styles.relatedDetail}>📍 {item.location}</Text>
+              ) : null}
+            </>
+          )}
         </View>
       </View>
     );
@@ -402,6 +422,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#e2e8f0',
   },
   relatedIcon: { fontSize: 24 },
+  relatedImage: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#F3F4F6', marginRight: 8 },
   relatedInfo: { flex: 1 },
   relatedName: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
   relatedDetail: { fontSize: 12, color: '#64748b', marginTop: 2 },

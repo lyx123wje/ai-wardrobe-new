@@ -439,7 +439,8 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 - 如果用户表达位置变更意图且清单中存在该物品，才返回 update_misc_location
 - 如果清单中不存在该物品，在 answer 中告知用户，不要执行操作
 - 如果用户明确指定了某件衣物名称说"洗好了""不想要了"等，且清单中存在，才返回对应的操作
-- related_items 列举回答中涉及的具体物品，方便前端展示卡片
+- related_items 列举回答中涉及的物品。衣物必须包含 id, type:"wardrobe", name(sub_tag), category, color, image(processed_image), wear_count, purchase_amount 字段；杂物必须包含 id, type:"misc", name, location 字段
+- 衣物ID和杂物ID是两个独立的体系！衣物ID对应衣物清单表格，杂物ID对应杂物清单表格，绝对不能混淆
 - search_diary 的 keyword 为用户问题中提取的核心关键词（1-3个词），不要整句搜索
 - create_diary 的 date 默认用当天日期，除非用户指定了其他日期"""
     return prompt

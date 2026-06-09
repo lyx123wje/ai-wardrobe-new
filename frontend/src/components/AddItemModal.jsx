@@ -159,9 +159,10 @@ export default function AddItemModal({ visible, onClose, onSaved }) {
           category: item.form.category,
           color: item.form.color.trim(),
           purchase_date: item.form.purchase_date || null,
-          price: item.form.price ? parseFloat(item.form.price) : null,
+          purchase_amount: item.form.price ? parseFloat(item.form.price) : null,
           notes: item.form.notes.trim(),
           processed_image: item.aiResult?.processed_image_base64 || item.base64 || null,
+          original_image: item.base64 || null,
         };
         const result = await createWardrobeItem(payload);
         const savedItem = result.data?.item || result.data?.data || result.data;
