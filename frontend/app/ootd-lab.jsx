@@ -337,6 +337,7 @@ export default function OOTDLabScreen() {
   const [collabConnected, setCollabConnected] = useState(false);
   const [partnerNickname, setPartnerNickname] = useState('');
   const [partnerUserId, setPartnerUserId] = useState('');
+  const partnerUserIdRef = useRef('');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatVisible, setChatVisible] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
@@ -453,6 +454,7 @@ export default function OOTDLabScreen() {
 
   // Load shared wardrobe when partner is known
   useEffect(() => {
+    partnerUserIdRef.current = partnerUserId;
     if (partnerUserId) {
       loadSharedWardrobe();
     }
@@ -604,9 +606,18 @@ export default function OOTDLabScreen() {
       }, 100);
     };
 
-    const handleWardrobeShared = (data) => {
+    const handleWardrobeShared = async (data) => {
       console.log('[Collab] Wardrobe shared by', data.from_nickname, data.item_ids);
-      loadSharedWardrobe();
+      if (!partnerUserIdRef.current) {
+        console.log('[Collab] partnerUserId 未设置，跳过加载');
+        return;
+      }
+      try {
+        const res = await fetchSharedWardrobe(partnerUserIdRef.current);
+        setSharedGroups(res.data?.shared || []);
+      } catch (err) {
+        console.error('[Collab] 加载分享失败:', err?.response?.status);
+      }
     };
 
     // WebRTC handlers
