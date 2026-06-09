@@ -3,6 +3,7 @@ import os
 import uuid
 import time
 import threading
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
@@ -406,7 +407,7 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 
     misc_table = "\n".join(misc_lines) if misc_lines else "暂无杂物"
 
-    prompt = f"""你是衣柜智能管家。你可以执行以下操作：
+    prompt = f"""你是衣柜智能管家，一个亲切、体贴的助手。你的语气温暖友好，像一位细心的家人在帮你整理生活。
 
 【数据】
 ## 衣物清单（共 {len(wardrobe_items)} 件）
@@ -431,15 +432,27 @@ def build_wardrobe_butler_prompt(question, wardrobe_items, misc_items):
 9. 当用户要求"删除/删掉"某条日记时，返回 delete_diary 操作，需要提供diary_id
 10. 当用户在杂物中找不到某物品时，诚实告知。不要编造不存在于清单中的物品。
 
-【输出格式】必须严格输出 JSON 格式（不要包裹在 markdown 代码块中）：
-{{"answer": "给用户的回复文字（200字以内，自然语言）", "actions": [{{"type": "update_misc_location", "misc_id": 5, "name": "剪刀", "new_location": "阳台"}}, {{"type": "update_wardrobe_unwanted", "item_id": 12, "name": "粉色豹纹裤子"}}, {{"type": "update_wardrobe_dirty", "item_id": 3, "name": "白衬衫"}}, {{"type": "update_wardrobe_clean", "item_id": 3, "name": "白衬衫"}}, {{"type": "update_wardrobe_keep", "item_id": 12, "name": "粉色豹纹裤子"}}, {{"type": "create_diary", "content": "日记内容", "date": "2025-05-10"}}, {{"type": "search_diary", "keyword": "关键词"}}, {{"type": "delete_diary", "diary_id": 1}}], "related_items": [{{"id": 5, "type": "misc", "name": "剪刀", "location": "阳台"}}]}}
+【回复风格】你的回复必须亲切自然，像朋友聊天一样。每次只回答一个核心问题，不要堆砌信息。适当使用语气词（哦、呢、呀、哈）。
+
+【输出格式】必须输出纯 JSON（不要包裹在 markdown 代码块或引号中）：
+{{"answer": "自然口语回复（200字以内）", "actions": [], "related_items": []}}
+
+操作类型参考（仅在用户明确意图时使用）：
+- update_misc_location: {{"type":"update_misc_location","misc_id":5,"name":"剪刀","new_location":"书房"}}
+- update_wardrobe_unwanted: {{"type":"update_wardrobe_unwanted","item_id":12,"name":"粉色豹纹裤子"}}
+- update_wardrobe_keep: {{"type":"update_wardrobe_keep","item_id":12,"name":"粉色豹纹裤子"}}
+- update_wardrobe_dirty: {{"type":"update_wardrobe_dirty","item_id":3,"name":"白衬衫"}}
+- update_wardrobe_clean: {{"type":"update_wardrobe_clean","item_id":3,"name":"白衬衫"}}
+- create_diary: {{"type":"create_diary","content":"日记内容","date":"2026-06-09"}}
+- search_diary: {{"type":"search_diary","keyword":"关键词"}}
+- delete_diary: {{"type":"delete_diary","diary_id":1}}
 
 【规则】
 - 如果用户只是询问信息，actions 返回空数组 []
 - 如果用户表达位置变更意图且清单中存在该物品，才返回 update_misc_location
 - 如果清单中不存在该物品，在 answer 中告知用户，不要执行操作
 - 如果用户明确指定了某件衣物名称说"洗好了""不想要了"等，且清单中存在，才返回对应的操作
-- related_items 列举回答中涉及的物品。衣物必须包含 id, type:"wardrobe", name(sub_tag), category, color, image(processed_image), wear_count, purchase_amount 字段；杂物必须包含 id, type:"misc", name, location 字段
+- related_items 列举回答中涉及的物品。衣物需包含 id, type:"wardrobe", name, category, color, wear_count, purchase_amount；杂物需包含 id, type:"misc", name, location。图片由系统自动补充，无需你填写。
 - 衣物ID和杂物ID是两个独立的体系！衣物ID对应衣物清单表格，杂物ID对应杂物清单表格，绝对不能混淆
 - search_diary 的 keyword 为用户问题中提取的核心关键词（1-3个词），不要整句搜索
 - create_diary 的 date 默认用当天日期，除非用户指定了其他日期"""
@@ -482,29 +495,45 @@ def ask_wardrobe_butler(question, wardrobe_items, misc_items, history=None):
 
     # 解析 JSON 回复
     try:
-        # 尝试直接从文本中提取 JSON 对象
         text = response_text.strip()
         # 去除可能的 markdown 代码块包裹
         if text.startswith("```"):
             lines = text.split("\n")
-            text = "\n".join(lines[1:]) if len(lines) > 1 else text
-            if text.endswith("```"):
-                text = text[:-3]
+            # 跳过第一行（可能是 ```json 或 ```)，去掉最后一行 ```
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 and lines[-1].strip() == "```" else text
             text = text.strip()
 
-        # 尝试找到 JSON 对象的起止位置
+        # 寻找 JSON 对象边界
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             text = text[start:end+1]
 
-        # Fix Chinese quotation marks that break JSON parsing
-        text = text.replace('\u201c', "'").replace('\u201d', "'")  # " "
-        text = text.replace('\u2018', "'").replace('\u2019', "'")  # ' '
-        # Escape unescaped double quotes inside JSON string values (simple heuristic)
-        text = re.sub(r'(?<=[^\\])"(?=[^,:}\]])', "'", text)
+        # 替换中文引号（这些字符在 JSON 中非法）
+        text = text.replace('\u201c', '"').replace('\u201d', '"')
+        text = text.replace('\u2018', "'").replace('\u2019', "'")
 
-        result = json.loads(text)
+        # 先尝试直接解析
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            # 如果失败，尝试修复 value 中的未转义双引号（LLM 常在中文回复里夹带英文引号）
+            # 策略：把前后都是中文字符的 " 换成 '
+            fixed = re.sub(r'([\u4e00-\u9fff])"([\u4e00-\u9fff])', r"\1'\2", text)
+            # 以及 value 值中间、前后有空格的 "（常见于引用对话）
+            fixed = re.sub(r'(?<=[\u4e00-\u9fff\s])"(?=[\u4e00-\u9fff\s])', "'", fixed)
+            try:
+                parsed = json.loads(fixed)
+            except json.JSONDecodeError:
+                # 最后尝试：把 value 内部的 " 全替换为 '
+                # 但只替换不在关键 JSON 结构位置（:, {}[]）旁边的 "
+                fixed2 = re.sub(r'(?<=[^\\{,:\s\[\]}])"(?=[^,:}\]\s])', "'", text)
+                try:
+                    parsed = json.loads(fixed2)
+                except json.JSONDecodeError:
+                    raise  # 三种策略都失败，抛出异常
+
+        result = parsed
 
         # 验证必要字段
         if "answer" not in result:

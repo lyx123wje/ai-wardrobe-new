@@ -180,22 +180,26 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
     const isWardrobe = item.type === 'wardrobe';
     return (
       <View key={`related-${idx}`} style={styles.relatedCard}>
-        {isWardrobe && item.image ? (
+        {item.image ? (
           <Image
             source={{ uri: item.image }}
             style={styles.relatedImage}
-            resizeMode="contain"
+            resizeMode="cover"
           />
         ) : (
-          <Text style={styles.relatedIcon}>{isWardrobe ? '👔' : '📦'}</Text>
+          <View style={styles.relatedPlaceholder}>
+            <Text style={styles.relatedPlaceholderText}>{isWardrobe ? '👔' : '📦'}</Text>
+          </View>
         )}
         <View style={styles.relatedInfo}>
-          <Text style={styles.relatedName}>{item.name}</Text>
+          <Text style={styles.relatedName}>{item.name || '未命名'}</Text>
           {isWardrobe ? (
             <>
-              <Text style={styles.relatedDetail}>
-                {item.category || ''}{item.color ? ` · ${item.color}` : ''}
-              </Text>
+              {(item.category || item.color) ? (
+                <Text style={styles.relatedDetail}>
+                  {item.category || ''}{item.color ? ` · ${item.color}` : ''}
+                </Text>
+              ) : null}
               <Text style={styles.relatedDetail}>
                 穿{item.wear_count || 0}次
                 {item.purchase_amount > 0 ? ` · ¥${item.purchase_amount}` : ''}
@@ -204,7 +208,10 @@ export default function ButlerChat({ visible, onClose, onActionExecuted }) {
           ) : (
             <>
               {item.location ? (
-                <Text style={styles.relatedDetail}>📍 {item.location}</Text>
+                <View style={styles.relatedLocationRow}>
+                  <Text style={styles.relatedLocationIcon}>📍</Text>
+                  <Text style={styles.relatedDetail}>{item.location}</Text>
+                </View>
               ) : null}
             </>
           )}
@@ -415,17 +422,27 @@ const styles = StyleSheet.create({
   },
   actionCardIcon: { fontSize: 18 },
   actionCardText: { flex: 1, fontSize: 13, color: '#1e293b', lineHeight: 18 },
-  relatedCards: { marginTop: 10, gap: 6 },
+  relatedCards: { marginTop: 10, gap: 8 },
   relatedCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#f8f9fc', padding: 10, borderRadius: 10,
-    borderWidth: 1, borderColor: '#e2e8f0',
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', padding: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: '#e8ecf0',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
   },
-  relatedIcon: { fontSize: 24 },
-  relatedImage: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#F3F4F6', marginRight: 8 },
+  relatedImage: {
+    width: 60, height: 60, borderRadius: 10, backgroundColor: '#F3F4F6',
+  },
+  relatedPlaceholder: {
+    width: 60, height: 60, borderRadius: 10, backgroundColor: '#F1F5F9',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  relatedPlaceholderText: { fontSize: 28 },
   relatedInfo: { flex: 1 },
-  relatedName: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
+  relatedName: { fontSize: 14, fontWeight: '600', color: '#1e293b', marginBottom: 4 },
   relatedDetail: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  relatedLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  relatedLocationIcon: { fontSize: 12 },
   quickRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     paddingHorizontal: 16, paddingVertical: 10,

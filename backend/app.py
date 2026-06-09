@@ -826,6 +826,30 @@ def api_wardrobe_ask():
         # 调用 AI 推理
         result = ask_wardrobe_butler(question, wardrobe_items, misc_items, history)
 
+        # 给 related_items 补上实际图片数据（LLM 在 prompt 中看不到图片）
+        wardrobe_by_id = {item['id']: item for item in wardrobe_items}
+        misc_by_id = {item['id']: item for item in misc_items}
+        enriched_items = []
+        for ri in result.get("related_items", []):
+            enriched = dict(ri)
+            if ri.get("type") == "wardrobe":
+                actual = wardrobe_by_id.get(ri.get("id"))
+                if actual:
+                    enriched["image"] = actual.get("processed_image") or ""
+                    enriched["name"] = ri.get("name") or actual.get("sub_tag", "")
+                    enriched["category"] = ri.get("category") or actual.get("category", "")
+                    enriched["color"] = ri.get("color") or actual.get("color", "")
+                    enriched["wear_count"] = ri.get("wear_count", actual.get("wear_count", 0))
+                    enriched["purchase_amount"] = ri.get("purchase_amount", actual.get("purchase_amount", 0))
+            elif ri.get("type") == "misc":
+                actual = misc_by_id.get(ri.get("id"))
+                if actual:
+                    enriched["image"] = actual.get("image") or ""
+                    enriched["name"] = ri.get("name") or actual.get("name", "")
+                    enriched["location"] = ri.get("location") or actual.get("location", "")
+            enriched_items.append(enriched)
+        result["related_items"] = enriched_items
+
         # 执行 AI 返回的 actions
         executed_actions = []
         for action in result.get("actions", []):
