@@ -460,6 +460,19 @@ export default function OOTDLabScreen() {
     }
   }, [partnerUserId, loadSharedWardrobe]);
 
+  // 协作期间每 3 秒轮询一次分享的衣物（兜底，不再依赖 socket 事件时序）
+  useEffect(() => {
+    if (!collabConnected || !partnerUserId) return;
+    const interval = setInterval(() => {
+      if (partnerUserIdRef.current) {
+        fetchSharedWardrobe(partnerUserIdRef.current).then((res) => {
+          setSharedGroups(res.data?.shared || []);
+        }).catch(() => {});
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [collabConnected, partnerUserId]);
+
   useEffect(() => {
     if (wardrobeLoaded) {
       setLoading(false);
